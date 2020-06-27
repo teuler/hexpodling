@@ -6,10 +6,14 @@ This folder contains the `.STL` file for the printed parts. Most of the parts ar
   * Improved holders for the hip servos inside the body
   * Axes to hold ball-bearings for hip servos
   * Shafts for a 3rd set of servo cables 
+* `lid_v1.stl` - "lid" with holder for battery and mounts for electronics caddy (new)
 * `electronic_caddy_v1b.stl` - Caddy for hexbot electronics board (new)
-* `lid_v1.stl` - "lid" with holder for battery and mounts for electronics caddy
-* `tibea_v1.stl`, `tibea_v1_alternative.stl` - two 
+
 * `femur_v1.stl`
+* `tibea_v1.stl`, `tibea_v1_alternative.stl` - Leg (tibea). Changes from the original:
+  * Less angled
+  * Improved servo holder; two versions for different versions (originals/copies) of MG90 servos
 * `foot.stl` - Foot, to be printed from flexibel filament (e.g. TPU)
+
 * `switch_adapter.stl` - Adapter for power switch (original)
 * `LED_holder.stl` - Fits a 3-mm LED into one of the holes of the base
