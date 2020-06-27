@@ -9,9 +9,9 @@ This folder contains the `.STL` file for the printed parts. Most of the parts ar
 * `lid_v1.stl` - "lid" with holder for battery and mounts for electronics caddy (new)
 * `electronic_caddy_v1b.stl` - Caddy for hexbot electronics board (new)
 
-* `femur_v1.stl`
+* `femur_v1.stl` - Leg (femur). Additional segment for 3DOF legs (new)
 * `tibea_v1.stl`, `tibea_v1_alternative.stl` - Leg (tibea). Changes from the original:
-  * Less angled
+  * Less angled than original (for 3DOF legs)
   * Improved servo holder; two versions for different versions (originals/copies) of MG90 servos
 * `foot.stl` - Foot, to be printed from flexibel filament (e.g. TPU)
 
