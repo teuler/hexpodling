@@ -1,4 +1,4 @@
-This folder contains the `.STL` file for the printed parts. Most of the parts are derived from the parts of the [Vorpal](https://vorpalrobotics.com/wiki/index.php/Vorpal_Robotics) hexapod; for link to original `.STL` files, see [here](https://vorpalrobotics.com/wiki/index.php/Vorpal_The_Hexapod_Assembly_Instructions).
+This folder contains the `.STL` files for the 3D printed parts. Most of the parts are derived from the parts of the [Vorpal](https://vorpalrobotics.com/wiki/index.php/Vorpal_Robotics) hexapod; for link to original `.STL` files, see [here](https://vorpalrobotics.com/wiki/index.php/Vorpal_The_Hexapod_Assembly_Instructions).
 
 ### Body
 * `base_v5.stl` - Body of the robot. Changes from the original:
