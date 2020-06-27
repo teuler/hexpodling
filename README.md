@@ -1,6 +1,6 @@
 # hexbotling
 
-"hexbotling" is ...
+"hexbotling" is ... Please find the details in the [WiKi](https://github.com/teuler/hexbotling/wiki).
 
 ### Release Notes
 
