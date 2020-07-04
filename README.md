@@ -1,7 +1,9 @@
 # hexbotling
 
 "hexbotling" is a work-in-progress, 3-degrees of freedom (3DOF) hexapod robot based on the [Vorpal](https://vorpalrobotics.com/wiki/index.php/Vorpal_The_Hexapod
-) from Vorpal Robotics. The original Vorpal is remote-controlled and 2DOF; it is aimed at teaching in schools. The main differences between the original and the version described here are:
+) from Vorpal Robotics. The original Vorpal is remote-controlled and 2DOF; it is aimed at teaching in schools. 
+
+The main differences between the original and the version described here are:
 * The legs contain an additional segment, hence 3DOF
 * Based on an ESP32 microcontroller ([TinyPICO](https://www.tinypico.com/)) instead of the original's Arduino Nano
 * Programmed in [MicroPython](http://micropython.org/)
