@@ -29,5 +29,7 @@ This folder contains the `.STL` files for the 3D printed parts. Most of the part
   Foot, to be printed from flexibel filament (e.g. TPU)
 
 ### Other parts
-* `switch_adapter.stl` - Adapter for power switch (original)
-* `LED_holder.stl` - Fits a 3-mm LED into one of the holes of the base
+* `switch_adapter.stl`  
+  Adapter for power switch (original)
+* `LED_holder.stl`  
+  Fits a 3-mm LED into one of the holes of the base
