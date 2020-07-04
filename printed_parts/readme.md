@@ -5,6 +5,11 @@ This folder contains the `.STL` files for the 3D printed parts. Most of the part
   * Improved holders for the hip servos inside the body
   * Axes to hold ball-bearings for hip servos
   * Shafts for a 3rd set of servo cables 
+  
+[<img align="center" src="https://github.com/teuler/hexbotling/blob/master/pictures/base.png" alt="Drawing" width="720"/>](https://github.com/teuler/hexbotling/blob/master/pictures/base.png)
+  
+https://github.com/teuler/hexbotling/blob/master/pictures/base.png
+  
 * `lid_v1.stl` - "lid" with holder for battery and mounts for electronics caddy (new)
 * `electronic_caddy_v1b.stl` - Caddy for hexbot electronics board (new)
 
