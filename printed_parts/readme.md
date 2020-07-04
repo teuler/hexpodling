@@ -6,7 +6,7 @@ This folder contains the `.STL` files for the 3D printed parts. Most of the part
   * Axes to hold ball-bearings for hip servos
   * Shafts for a 3rd set of servo cables 
   
-[<img align="center" src="https://github.com/teuler/hexbotling/blob/master/pictures/base.png" alt="Drawing" width="720"/>](https://github.com/teuler/hexbotling/blob/master/pictures/base.png)
+[<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/base.png" alt="Drawing" width="720"/>](https://github.com/teuler/hexbotling/blob/master/pictures/base.png)
   
 https://github.com/teuler/hexbotling/blob/master/pictures/base.png
   
