@@ -1,0 +1,9 @@
+my_ssid             = "YOUR_SID"
+my_wp2_pwd          = "YOUR_PASSWORD"
+my_mqtt_usr         = ""
+my_mqtt_pwd         = ""
+my_mqtt_srv         = "YOUR_MQTT_SERVER_IP"
+my_mqtt_port        = 1883
+my_mqtt_alive_s     = 60
+my_mqtt_encrypt_key = None # e.g. b'1234123412341234'
+my_mqtt_encrypt_CBC = None # e.g. b'5678567856785678'
