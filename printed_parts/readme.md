@@ -2,7 +2,8 @@ This folder contains the `.STL` files for the 3D printed parts. Most of the part
 
 [<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/base.png" alt="Drawing" width="480"/>](https://github.com/teuler/hexbotling/blob/master/pictures/base.png)
 ### Body
-* `base_v5.stl` - Body of the robot. Changes from the original:
+* `base_v5.stl`  
+  Body of the robot. Changes from the original:
   * Improved holders for the hip servos inside the body
   * Axes to hold ball-bearings for hip servos
   * Shafts for a 3rd set of servo cables, because in the 3DOF version three servos per leg are needed
