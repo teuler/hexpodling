@@ -4,9 +4,9 @@ This folder contains the `.STL` files for the 3D printed parts. Most of the part
 ### Body
 * `base_v5.stl`  
   Body of the robot. Changes from the original:
-  * Improved holders for the hip servos inside the body
-  * Axes to hold ball-bearings for hip servos
-  * Shafts for a 3rd set of servo cables, because in the 3DOF version three servos per leg are needed
+  * Improved holders for the hip servos inside the body (orange)
+  * Axes to hold ball-bearings for hip servos (green)
+  * Shafts (gray) for a 3rd set of servo cables, because in the 3DOF version three servos per leg are needed 
 * `lid_v1.stl`  
   "lid" with holder for battery and mounts for electronics caddy (new)
 * `electronic_caddy_v1b.stl`  
