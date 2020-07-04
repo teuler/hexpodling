@@ -12,7 +12,6 @@ This folder contains the `.STL` files for the 3D printed parts. Most of the part
 * `electronic_caddy_v1b.stl`  
   Caddy for hexbot electronics board (new)
 
-[<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png" alt="Drawing" width="480"/>](https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png)
 ### Legs
 * `hinge_v1.stl`  
   Leg (coxa). One coxa requires two hinges.
@@ -20,6 +19,9 @@ This folder contains the `.STL` files for the 3D printed parts. Most of the part
   * Hole to fix two hinges with an M3 screw.
 * `femur_v1.stl`  
   Leg (femur). Additional segment for 3DOF legs (new)
+
+[<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png" alt="Drawing" width="480"/>](https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png)
+
 * `tibea_v1.stl`, `tibea_v1_alternative.stl`  
   Leg (tibea). Changes from the original:
   * Less angled than original (for 3DOF legs)
