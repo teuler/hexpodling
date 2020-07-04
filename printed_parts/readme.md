@@ -1,7 +1,7 @@
 This folder contains the `.STL` files for the 3D printed parts. Most of the parts are derived from the parts of the [Vorpal](https://vorpalrobotics.com/wiki/index.php/Vorpal_Robotics) hexapod; for link to original `.STL` files, see [here](https://vorpalrobotics.com/wiki/index.php/Vorpal_The_Hexapod_Assembly_Instructions).
 
 ### Body
-[<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/base.png" alt="Drawing" width="320"/>](https://github.com/teuler/hexbotling/blob/master/pictures/base.png)
+[<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/base.png" alt="Drawing" width="480"/>](https://github.com/teuler/hexbotling/blob/master/pictures/base.png)
 
 * `base_v5.stl` - Body of the robot. Changes from the original:
   * Improved holders for the hip servos inside the body
@@ -11,7 +11,7 @@ This folder contains the `.STL` files for the 3D printed parts. Most of the part
 * `electronic_caddy_v1b.stl` - Caddy for hexbot electronics board (new)
 
 ### Legs
-[<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png" alt="Drawing" width="320"/>](https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png)
+[<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png" alt="Drawing" width="480"/>](https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png)
   
 
 * `femur_v1.stl` - Leg (femur). Additional segment for 3DOF legs (new)
