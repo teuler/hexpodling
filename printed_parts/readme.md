@@ -13,10 +13,11 @@ This folder contains the `.STL` files for the 3D printed parts. Most of the part
   Caddy for hexbot electronics board (new)
 
 ### Legs
-* `hinge_v1.stl`  
+* `hinge_v1.stl`, `hinge_v1_alternative.stl`   
   Leg (coxa). One coxa requires two hinges.
   * Space for ball-bearing
   * Hole to fix two hinges with an M3 screw.
+  * Alternative with smaller hole to fix horn to servos with M2.0 screws
 [<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png" alt="Drawing" width="480"/>](https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png)
 * `femur_v1.stl`  
   Leg (femur). Additional segment for 3DOF legs (new)
