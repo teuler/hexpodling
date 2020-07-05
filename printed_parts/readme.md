@@ -1,6 +1,6 @@
 This folder contains the `.STL` files for the 3D printed parts. Most of the parts are derived from the parts of the [Vorpal](https://vorpalrobotics.com/wiki/index.php/Vorpal_Robotics) hexapod; for link to original `.STL` files, see [here](https://vorpalrobotics.com/wiki/index.php/Vorpal_The_Hexapod_Assembly_Instructions).
 
-[<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/base.png" alt="Drawing" width="400"/>](https://github.com/teuler/hexbotling/blob/master/pictures/base.png)
+[<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/base.png" alt="Drawing" width="360"/>](https://github.com/teuler/hexbotling/blob/master/pictures/base.png)
 ### Body
 * `base_v5.stl`  
   Body of the robot. Changes from the original:
@@ -12,7 +12,7 @@ This folder contains the `.STL` files for the 3D printed parts. Most of the part
 * `electronic_caddy_v2.stl`  
   Caddy for hexbot electronics board (new)
 
-[<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png" alt="Drawing" width="400"/>](https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png) 
+[<img align="right" src="https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png" alt="Drawing" width="360"/>](https://github.com/teuler/hexbotling/blob/master/pictures/3dof_leg_2.png) 
 ### Legs
 * `hinge_v1.stl`, `hinge_v1_alternative.stl`   
   Leg (coxa). One coxa requires two hinges.
