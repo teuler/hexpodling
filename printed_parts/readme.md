@@ -18,7 +18,8 @@ This folder contains the `.STL` files for the 3D printed parts. Most of the part
   Leg (coxa). One coxa requires two hinges.
   * Space for ball-bearing
   * Hole to fix two hinges with an M3 screw.
-  * Alternative features a smaller hole to fix horn of mini servos with M2.0 screws (e.g. [SH-0255MG](https://www.savox-shop.com/de/savoex-sh-0255mg-servo.html))
+  * Alternative with a smaller hole to fix horn of mini servos with M2.0 screws 
+    (e.g. [SH-0255MG](https://www.savox-shop.com/de/savoex-sh-0255mg-servo.html))
 * `femur_v1.stl`  
   Leg (femur). Additional segment for 3DOF legs (new)
 * `tibea_v1.stl`, `tibea_v1_alternative.stl`  
