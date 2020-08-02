@@ -81,14 +81,15 @@ class WalkEngine(object):
 
   COX_NEUTRAL          = const(0)   # Special leg and hip angles ...
   FEM_NEUTRAL          = const(0)
-  FEM_SIT              = const(-40)
+  FEM_SIT              = const(-55) #-40
   TIB_NEUTRAL          = const(0)
-  TIB_SIT              = const(35)
+  TIB_SIT              = const(0)   # 35
   TIB_RELAXED          = const(-90)
 
   POST_NEUTRAL         = const(0)   # Postures
   POST_RELAXED         = const(1)
   POST_SITTING         = const(2)
+  POST_WALK            = const(3)
 
   DIAL_NONE            = const(-1)
   DIAL_STOP            = const(0)
@@ -119,9 +120,7 @@ class WalkEngine(object):
 
     # Initialize on-board hardware
     self.greenLED = dio.DigitalOut(rb.GREEN_LED)
-    '''
-    self.Buzzer = dio.Buzzer(rb.BUZZER, 2)
-    '''
+    self.Buzzer = dio.Buzzer(rb.BUZZER)
     self.Potentiometer = aio.AnalogIn(rb.ADC_POT)
     self._adc_battery = aio.AnalogIn(rb.ADC_BAT)
 
@@ -185,9 +184,7 @@ class WalkEngine(object):
     self._isServoPowerOn = True
 
     # Done
-    '''
     self.Buzzer.beep()
-    '''
     print("... done.")
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -215,7 +212,10 @@ class WalkEngine(object):
                               [TIB_NEUTRAL]*n3, 1000, 0))
     elif post == POST_SITTING:
       seq.append((self._SIDs, [COX_NEUTRAL]*n3 +[FEM_SIT]*n3 +
-                              [TIB_SIT]*n3, 1500, 0))
+                              [TIB_SIT]*n3, 1500, 1))
+    elif post == POST_WALK:
+      seq.append((self._SIDs, [COX_NEUTRAL]*n3 +[self.Cfg.FEM_STRT_ANG]*n3 +
+                              [self.Cfg.TIB_STRT_ANG]*n3, 1500, 1))
     for entr in seq:
       # Move into position of sequence and wait, either via spin, if already
       # setup, or simply by sleeping ...
@@ -227,22 +227,6 @@ class WalkEngine(object):
         time.sleep_ms(entr[2] +100)
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  '''
-  def runServoCalibration(self):
-    """ Start the servo manager's interactive servo calibration routine
-        For the key pad, it uses temporarily the analog pin that surveys servo
-        battery (33) as well as pin 26 (digital out)
-    """
-    # Make analog pin that surveys servo battery (33) temporarily available;
-    # uses as
-    try:
-      self._adc_battery.deinit()
-      self.SM.calibration(rb.ADC_BAT, rb.KEYPAD_POW)
-    finally:
-      self._adc_battery = aio.AnalogIn(rb.ADC_BAT)
-  '''
-
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   def powerDown(self):
     """ Switch off servos, close connections, etc.
     """
@@ -251,10 +235,8 @@ class WalkEngine(object):
     self.servoPower = False
     if self._uart:
       self._uart.deinit()
-    '''
     self.Buzzer.warn()
     self.Buzzer.beep()
-    '''
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   @property

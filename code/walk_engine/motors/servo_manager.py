@@ -22,7 +22,7 @@ else:
 
 __version__     = "0.1.0.0"
 RATE_MS         = const(20)
-_SCALER         = const(1)
+_SCALER         = const(16)
 _STEP_ARRAY_MAX = const(500)
 
 # ----------------------------------------------------------------------------
@@ -80,115 +80,21 @@ class ServoManager(object):
     if i in range(self._nChan) and self._Servos[i] is not None:
       self._servo_type[i] = type
 
-  def turn_all_off(self):
+  def turn_all_off(self, deinit=False):
     """ Turn all servos off
     """
     for servo in self._Servos:
       if not servo is None:
         servo.off()
-        servo.deinit()
+        if deinit:
+          servo.deinit()
 
   def deinit(self):
     """ Clean up
     """
     self._Timer.deinit()
-    self.turn_all_off()
+    self.turn_all_off(deinit=True)
 
-  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  '''
-  def calibration(self, pin_ai, pin_power):
-    """ Run an interactive calibration routine that uses an AD key pad
-    """
-    iServo = 0
-    iPos = 0
-    posList = [-45, 0, 45]
-    lim_us = (400, 2600)
-    iMode = 1
-
-    # Connect key pad
-    from platform.esp32.aio import KeyPadAIn
-    kpad = KeyPadAIn(pin_ai, pin_power)
-
-    # Move all servos to neutral
-    self.move([i for i in range(12)], [0]*12, 1500)
-
-    print("Starting calibration ...")
-    try:
-      while True:
-        rangeChanged = False
-        key, raw = kpad.value
-        if key == kpad.ENTER:
-          iMode = iMode+1 if iMode < 2 else 0
-          if iMode == 0:
-            print("Mode: Select servo")
-          elif iMode == 1:
-            print("Mode: Adjust servo")
-            print("Servo #{0} active".format(iServo))
-            min_us, max_us = self._Servos[iServo].range_us
-            print("-> range [us]: {0} - {1}".format(min_us, max_us))
-            self.move([iServo], [posList[iPos]], 500)
-          else:
-            print("Mode: Standard positions")
-          time.sleep_ms(500)
-
-        if iMode == 0:
-          if key in [kpad.UP, kpad.DOWN]:
-            # Change servo ...
-            if key == kpad.DOWN:
-              iServo = iServo-1 if iServo>0 else 11
-            else:
-              iServo = iServo+1 if iServo<11 else 0
-            print("Servo #{0} active".format(iServo))
-            time.sleep_ms(500)
-
-        elif iMode == 1:
-          if key == kpad.RIGHT:
-            # Change position
-            iPos = iPos+1 if iPos<len(posList)-1 else 0
-            self.move([iServo], [posList[iPos]], 500)
-            time.sleep_ms(500)
-          elif key == kpad.UP:
-            # Change min or maximum, depending on current position
-            rangeChanged = True
-            if iPos == 0:
-              min_us += 5
-            elif iPos == 2:
-              max_us += 5 if max_us < lim_us[1] else 0
-            else:
-              rangeChanged = False
-          elif key == kpad.DOWN:
-            # Change min or maximum, depending on current position
-            rangeChanged = True
-            if iPos == 0:
-              min_us -= 5 if max_us > lim_us[0] else 0
-            elif iPos == 2:
-              max_us -= 5
-            else:
-              rangeChanged = False
-          if rangeChanged:
-            self._Servos[iServo].change_range([min_us, max_us])
-            self.move([iServo], [posList[iPos]], 500)
-            time.sleep_ms(500)
-            print("Servo #{0} @ {1} -> range [us]: {2} - {3}"
-                  .format(iServo, iPos, min_us, max_us))
-
-        elif iMode == 2:
-          if key == kpad.RIGHT:
-            print("Assume `standing`")
-            p = [0]*6 + [-45]*6
-            self.move([i for i in range(12)], p, 1500, False)
-            time.sleep_ms(2000)
-
-        time.sleep_ms(20)
-    except KeyboardInterrupt:
-      # Free resources and print results
-      kpad.deinit()
-      for iServo in range(12):
-        min_us, max_us = self._Servos[iServo].range_us
-        print("({0}, {1}){2} # {3}".format(min_us, max_us,
-                                           "," if iServo < 11 else "]",
-                                           iServo))
-  '''
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   @timed_function
   def move_timed(self, servos, pos, dt_ms=0, lin_vel=True):
@@ -224,6 +130,7 @@ class ServoManager(object):
         # servo's move, with ...
         p = self._servoPos[SID] *_SCALER
         dp = self._targetPosList[n] -p
+        #print("dp=", dp)
         if lin_vel:
           # ... linear velocity
           s = int(dp /nSteps)
@@ -255,10 +162,12 @@ class ServoManager(object):
       for iS in range(n):
         p = self._targetPosList[iS] //_SCALER
         self._Servos[self._SIDList[iS]].write_us(p)
+      #print("now-targ", self._targetPosList)
     else:
       # Setup timer to keep moving them in the requested time
       self._Timer.init(mode=Timer.PERIODIC, period=RATE_MS, callback=self._cb)
       self._isMoving = True
+      #print("timer-targ", self._targetPosList)
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   def _cb(self, value):

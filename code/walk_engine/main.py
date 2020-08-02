@@ -25,10 +25,36 @@ def main():
 
       while True:
         try:
+          # Check if dial has changed
+          if r._dialChanged:
+            r._dialChanged = False
+            if r._currDialPos in [0,3]:
+              if r._currDialPos == 0:
+                # Stop GGN, assume sitting position and power-down
+                r.GGN.stop()
+                r.setPosture(post=r.POST_SITTING)
+                r.servoPower = False
+                r._hexState = HexState.Stop
+              elif r._currDialPos == 1:
+                pass
+                '''
+                # Power up and assume a neutral position
+                r.servoPower = True
+                r.setPosture(post=r.POST_NEUTRAL)
+                r._hexState = HexState.Adjust
+                '''
+              elif r._currDialPos == 3:
+                # Activate GGN
+                r.servoPower = True
+                r.setPosture(post=r.POST_WALK)
+                r.GGN.start()
+                r._hexState = HexState.WalkEngineEngaged
+              toLog("Dial=={0} -> {1}"
+                    .format(r._currDialPos, HexStateStr[r._hexState]))
+
           # Check for new command
-          if r.mIn.receive():
+          if r._hexState == HexState.WalkEngineEngaged and r.mIn.receive():
             # Handle command ...
-            #print(round, r.mIn)
             isDone = r.onSerialCommand()
             if not isDone:
               toLog("Command not handled", ErrCode.Cmd_NotHandled)
@@ -39,7 +65,8 @@ def main():
         finally:
           # Keep GGN running and make sure the robot's housekeeping gets
           # updated once per loop
-          r.GGN.spin()
+          if r._hexState == HexState.WalkEngineEngaged:
+            r.GGN.spin()
           r.spin_ms()
           round += 1
 

@@ -29,10 +29,12 @@ class HexaPod(WalkEngine):
     # Initialize
     self._isVerbose = True
     self._currDialPos = self.DIAL_NONE
+    self._dialChanged = True
+    self._hexState = HexState.Undefined
 
-    '''
     # Telemetry
     self.Tele = None
+    '''
     if "wlan" in self._devices:
       from remote.telemetry import Telemetry
       self.greenLED.on()
@@ -57,10 +59,11 @@ class HexaPod(WalkEngine):
         - ...
     """
     if self.isRunning:
+      # Check if dial position has changed
       d = self.dialPosition
       if d is not self._currDialPos:
         self._currDialPos = d
-        toLog("Dial={0}".format(self._currDialPos))
+        self._dialChanged = True
 
     # ******************************
     # ******************************
@@ -113,7 +116,10 @@ class HexaPod(WalkEngine):
         # Start or stop the gait generator
         # >GG0 M=a,m G=g;
         # TODO: Use other parameters, such as gait
-        self.GGN.start_stop(self.mIn[0,0] > 0)
+        if self.mIn[0,0] > 0:
+          self.GGN.start()
+        else:
+          self.GGN.stop()
         isDone = True
 
       elif self.mIn.token == rmsg.TOK_GGP:

@@ -84,9 +84,9 @@ class HexaGaitGenerator(object):
     self._servoAngles = np.zeros((LEG_COUNT, 3))
 
     # General state and error
-    self.hexpodState = HXAState.Standby
+    self.walkEngineState = WEState.Standby
     self.lastErrC = ErrCode.Ok
-    self._prevStates = [self.state, self.hexpodState, self.lastErrC]
+    self._prevStates = [self.state, self.walkEngineState, self.lastErrC]
 
   def change_gait(self, gaitType=GGN_GAIT_default):
     """ Set or change the gait type
@@ -97,16 +97,20 @@ class HexaGaitGenerator(object):
       self.reset()
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  def start_stop(self, on):
-    """ Start or stop GGN
+  def start(self):
+    """ Start GGN
     """
-    self._Inp.prepare(on)
-    if on:
-      self.state = GGNState.NeedsToCompute
-      self.hexpodState = HXAState.Ready
-    else:
-      self.state = GGNState.Idle
-      self.hexpodState = HXAState.Standby
+    self._Inp.prepare(True)
+    self.state = GGNState.NeedsToCompute
+    self.walkEngineState = WEState.Ready
+    self.log_status()
+
+  def stop(self):
+    """ Stop GGN
+    """
+    self._Inp.prepare(False)
+    self.state = GGNState.Idle
+    self.walkEngineState = WEState.Standby
     self.log_status()
 
   def spin(self):
@@ -222,11 +226,11 @@ class HexaGaitGenerator(object):
       if self._is_gait_in_motion(zFactor=2):
         self.nextMoveDur_ms = gait.nomSpeed
         self.nextMoveDur_ms += inp.delayInput.val*2. +inp.delaySpeed_ms.val
-        self.currState = HXAState.Walking
+        self.walkEngineState = WEState.Walking
       else:
         # Movement speed if not walking
         self.nextMoveDur_ms = 200 +inp.delaySpeed_ms.val
-        self.currState = HXAState.Ready
+        self.walkEngineState = WEState.Ready
 
       # Send new leg positions to the servo manager
       self._startServoUpdate()
@@ -240,7 +244,7 @@ class HexaGaitGenerator(object):
         self._execMove()
         self.lastErrC = ErrCode.ServoMoveOverdue
         if self._verboseLevel > 0:
-          toLog("Servo move is overdue", self.lastErrC)
+          toLog("Servo move is overdue", err=self.lastErrC)
       else:
         # The last move is not yet finished, we need to wait ...
         # (for this the timer is used, so that other sections of the main
@@ -296,9 +300,9 @@ class HexaGaitGenerator(object):
       self._SMan.move(cfg.SERVO_IDS, spos, dur_ms, True)
     if self._verboseLevel > 1:
       print("Joint angles:")
-      self.log_array(self._legAngles, digits=0)
+      toLogArray(self._legAngles, digits=0)
       print("Servo angles:")
-      self.log_array(self._servoAngles, digits=0)
+      toLogArray(self._servoAngles, digits=0)
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   #@timed_function
@@ -376,12 +380,11 @@ class HexaGaitGenerator(object):
       # Calculate tibia angle
       tmp2 = 2 *fLen *tLen
       a_rad4 = math.acos(tmp1/tmp2)
-      #legA[iLeg,TIB] = -(90 -math.degrees(a_rad4))
       legA[iLeg,TIB] = (tCor -math.degrees(a_rad4))
 
     except ValueError:
       toLog("Domain error in `_legIK` for leg {0}".format(iLeg),
-            ErrCode.IKM_Incomplete)
+            err=ErrCode.IKM_Incomplete)
 
     # Return the solution quality
     if IKSW < (fLen +tLen -30):
@@ -439,30 +442,16 @@ class HexaGaitGenerator(object):
       self.lastErrC = ErrCode.IKM_Failed
     if self._verboseLevel > 0 and not self.lastErrC == ErrCode.Ok:
       toLog("IKM: {0} error(s), {1} warnings, {2}, solutions"
-            .format(nErr, nWrn, nSol), self.lastErrC)
+            .format(nErr, nWrn, nSol), err=self.lastErrC)
 
   def log_status(self):
     """ Log status
     """
-    states = [self.hexpodState, self.state, self.lastErrC]
+    states = [self.walkEngineState, self.state, self.lastErrC]
     if states != self._prevStates:
       self._prevStates = states
       toLog("HXA: `{0}`, GGN: `{1}`, error: {2}"
-            .format(HXAStateStr[states[0]], GGNStateStr[states[1]], states[2]),
-                    self.lastErrC)
-
-  def log_array(self, a, digits=1):
-    n,m = a.shape()
-    str = "[" if n > 1 else ""
-    for i in range(n):
-      str += "["
-      for j in range(m):
-        if n == 1:
-          str += "{0:5.{1}1f},".format(a[i], digits)
-        else:
-          str += "{0:5.{1}f},".format(a[i][j], digits)
-      str = str[:-1] +"],"
-    str = str[:-1] +"]" if n > 1 else str[:-1]
-    print(str)
+            .format(WEStateStr[states[0]], GGNStateStr[states[1]],
+                    states[2]), err=self.lastErrC)
 
 # ----------------------------------------------------------------------------

@@ -165,9 +165,8 @@ class PWMOut(object):
 class Buzzer(object):
   """Buzzer."""
 
-  def __init__(self, pin, channel):
-    self._buzz = PWMOut(pin, channel=channel)
-    self._buzz.duty_percent = 0
+  def __init__(self, pin):
+    self._buzz = PWMOut(pin, freq=0)
     self._freq = 0
     self._mute = False
 
@@ -189,17 +188,16 @@ class Buzzer(object):
   def mute(self, value):
     self._mute = value != 0
 
-  def beep(self, freq=440):
+  def beep(self, freq=440, dur=100):
     if not self._mute:
       self.freq_Hz = freq
-      time.sleep_ms(100)
+      self._buzz.duty_percent = 10
+      time.sleep_ms(dur)
+      self._buzz.duty_percent = 0
       self.freq_Hz = 0
 
   def warn(self):
-    if not self._mute:
-      self.freq_Hz = 110
-      time.sleep_ms(250)
-      self.freq_Hz = 0
+    self.beep(110, 250)
 
   def deinit(self):
     self._buzz.deinit()

@@ -19,11 +19,15 @@ try:
   from micropython import const
   from hexa_global import *
   import ulab as np
+  from math import radians, sin, cos
+  MICROPYTHON = True
 except ModuleNotFoundError:
   # Standard Python imports
   const = lambda x : x
   import numpy as np
+  from numpy import radians, sin, cos
   from walk_engine.hexa_global import *
+  MICROPYTHON = False
 
 # ----------------------------------------------------------------------------
 class HexaConfig(object):
@@ -52,7 +56,7 @@ class HexaConfig(object):
                                 dtype=np.uint8)
 
   SERVO_DIR        = np.array([-1,-1,-1, 1, 1, 1,
-                               -1,-1,-1,-1,-1,-1,
+                                1, 1, 1, 1, 1, 1, #-1,-1,-1,-1,-1,-1,
                                 1, 1, 1, 1, 1, 1])
 
   SERVO_RANGES     = np.array([[-45, +45], [-45, +45], [-45, +45],
@@ -83,7 +87,7 @@ class HexaConfig(object):
   COX_LEN          = const(48)
   FEM_LEN          = const(47)
   TIB_LEN          = const(84)
-  TIB_CORR_ANGLE   = const(50)
+  TIB_CORR_ANGLE   = const(50)     # 50, originally 90
 
   # Limits within movements are considered finished
   TRAVEL_DEAD_ZONE = const(2)
@@ -108,8 +112,14 @@ class HexaConfig(object):
 
   # Start position of feet
   # (Measured from beginning of coxa; leg coordinate system (?))
+  FEM_STRT_ANG     = -10
+  TIB_STRT_ANG     = 10
+  FEET_INIT_XYZ    = []
+  '''
   FEET_INIT_XYZ    = np.array([[+85, 75, 0], [+45, 75,-76], [ 45, 75,-76],
                                [ 85, 75, 0], [ 45, 75, 76], [+45, 75, 76]])
+  '''
+
   # Devices
   # - Servo controller    : "pca9685", "minimaestro18"
   # - Network             : "wlan"
@@ -138,13 +148,42 @@ class HexaConfig(object):
       z = -math.sin(math.radians(i*self.BODY_COX_ANG)) *self.BODY_R
       temp.append([x, 0, z])
     self.COX_OFF_XYZ = np.array(temp)
+    self.FEET_INIT_XYZ = self.get_foot_pos(self.FEM_STRT_ANG, self.TIB_STRT_ANG)
+    '''
+    if MICROPYTHON:
+      toLogArray(self.FEET_INIT_XYZ, 0)
+    '''
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  def get_foot_pos(self, af_deg, at_deg, ac_deg=None):
+    """ Calculate starting foot positions from angles
+    """
+    ac_deg = self.BODY_COX_ANG if ac_deg is None else ac_deg
+    ac = radians(ac_deg)
+    af = radians(af_deg)
+    at = radians(at_deg)
+
+    pos = np.zeros((6,3), dtype=np.int16)
+    for i in range(6):
+      rx =  self.FEM_LEN*cos(af) -self.TIB_LEN*sin(at +af) +self.COX_LEN
+      y  =  self.FEM_LEN*sin(af) +self.TIB_LEN*cos(at -af)
+      x  =  rx *cos(ac *i)
+      z  = -rx *sin(ac *i)
+      pos[i] = np.array([abs(int(x)), int(y), int(z)])
+    return pos
+
   def get_servo_ranges_us(self):
     """ Return the servo calibration values for the respective servo
         controller
     """
     if "minimaestro18" in self.DEVICES:
+      s06_0 = 1640
+      s07_0 = 1600
+      s08_0 = 1570
+      s09_0 = 1360
+      s10_0 = 1460
+      s11_0 = 1493
+      d = 500
       return [# Coxa   -45.. +45
               ( 965, 1812),
               (1001, 1857),
@@ -153,19 +192,18 @@ class HexaConfig(object):
               (1030, 1970),
               (1074, 1931),
               # Femur  -55.. +55
-              ( 851+220, 2132+220),
-              ( 675+50,  2000+50),
-              ( 942+200, 2307+200),
-              ( 624+200, 1931+200),
-              ( 624+250, 1905+250),
-              ( 857+240, 2242+240),
-              # Tibia  -90.. +35
-             #( 884, (1890 -884)/90 *(35 +8) +1890),
+              ( s06_0 -d, s06_0 +d),
+              ( s07_0 -d, s07_0 +d),
+              ( s08_0 -d, s08_0 +d),
+              ( s09_0 -d, s09_0 +d),
+              ( s10_0 -d, s10_0 +d),
+              ( s11_0 -d, s11_0 +d),
+               # Tibia  -90.. +35
               ( 782, (1847 -782)/90 *(35 -2) +1847),
-              ( 634, (1764 -634)/90 *(35 +0 -4) +1764),
-              ( 846, (1850 -846)/90 *(35 +6 -5) +1850),
+              ( 634, (1764 -634)/90 *(35 -7) +1764),
+              ( 846, (1850 -846)/90 *(35 +6 -3) +1850),
               ( 943, (1985+35 -943)/90 *(35 -9 +9) +1985+35),
-              (1027, (1995-1027)/90 *(35 +6) +1995),
+              (1027, (1995-1027)/90 *(35 +4) +1995),
               ( 840, (1900 -840)/90 *(35 -2) +1900)]
     else:
       return []

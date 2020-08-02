@@ -15,10 +15,12 @@ try:
   # Micropython imports
   from micropython import const
   import ulab as np
+  shape = lambda x : x.shape()
   MICROPYTHON = True
 except ModuleNotFoundError:
   # Standard Python imports
   const = lambda x : x
+  shape = lambda x : x.shape
   import numpy as np
   MICROPYTHON = False
 
@@ -67,25 +69,38 @@ class GGNState:
   NeedsToCompute     = const(2)  # GGN needs to calculate a set of angles
   UpdateServos       = const(3)  # Move is (almost) finished and servos need
                                  # to be updated
-GGNStateStr          = dict([
+GGNStateStr = dict([
   (GGNState.Idle, "idle"),
   (GGNState.IsMoving, "isMoving"),
   (GGNState.NeedsToCompute, "needsToCompute"),
   (GGNState.UpdateServos, "updateServos")])
 
 # ----------------------------------------------------------------------------
-# General state
-class HXAState:
+# Walk engine state
+class WEState:
   Standby            = const(0)  # Hardware initialized, GGN off
   Ready              = const(1)  # GGN on but not walking
   Walking            = const(2)  # GGN on and walking
   Error              = const(-1)
 
-HXAStateStr          = dict([
-  (HXAState.Standby, "on standby"),
-  (HXAState.Ready, "ready"),
-  (HXAState.Walking, "walking"),
-  (HXAState.Error, "ERROR")])
+WEStateStr = dict([
+  (WEState.Standby, "on standby"),
+  (WEState.Ready, "ready"),
+  (WEState.Walking, "walking"),
+  (WEState.Error, "ERROR")])
+
+# HexaPod state
+class HexState:
+  Undefined          = const(0)
+  Stop               = const(1)  # Dial==Stop, Servo power off
+  Adjust             = const(2)  # Dial==Adj, POST_NEUTRAL
+  WalkEngineEngaged  = const(3)  # Dial==Demo; WEState==Ready or ==Walking
+
+HexStateStr = dict([
+  (HexState.Undefined, "none"),
+  (HexState.Stop, "stopped, servos off"),
+  (HexState.Adjust, "adjust, servos neutral"),
+  (HexState.WalkEngineEngaged, "walk engine engaged")])
 
 # ----------------------------------------------------------------------------
 # Errors
@@ -151,5 +166,22 @@ def toLog(sMsg, sTopic="", err=ErrCode.Ok):
     s = "ERROR"
     c = ANSI_RED
   print(c +"[{0:>12}] {1:35}".format(s, sMsg) +ANSI_BLACK)
+
+def toLogArray(a, digits=1):
+  """ Print an array to the history
+  """
+  n,m = shape(a)
+  str = "[" if n > 1 else ""
+  for i in range(n):
+    str += "["
+    for j in range(m):
+      if n == 1:
+        str += "{0:5.{1}1f},".format(a[i], digits)
+      else:
+        str += "{0:5.{1}f},".format(a[i][j], digits)
+    str = str[:-1] +"],"
+  str = str[:-1] +"]" if n > 1 else str[:-1]
+  print(str)
+
 
 # ----------------------------------------------------------------------------
