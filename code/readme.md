@@ -6,7 +6,7 @@ This folder contains python code that runs on a PC, e.g. to communicate with a h
    
 The subfolder `hexbotling` contains the code that runs on the roboter.
 
-The folder `modules` contains additional librries (e.g. `joystick.py`)
+The folder `modules` contains additional libraries (e.g. `joystick.py`)
 
 > Note: _The robot code relies on the drivers in [`robotling_lib`](https://github.com/teuler/robotling_lib), which has to be clones into the `hexbotling` 
   folder on the development PC._
