@@ -16,6 +16,7 @@ try:
   from micropython import const
   import ulab as np
   shape = lambda x : x.shape()
+  import robotling_lib.misc.ansi_color as ansi
   MICROPYTHON = True
 except ModuleNotFoundError:
   # Standard Python imports
@@ -75,6 +76,15 @@ GGNStateStr = dict([
   (GGNState.NeedsToCompute, "needsToCompute"),
   (GGNState.UpdateServos, "updateServos")])
 
+# Dial state
+class DialState:
+  NONE               = const(-1)
+  STOP               = const(0)
+  AD                 = const(1)
+  TS                 = const(2)
+  DEMO               = const(3)
+  RC                 = const(4)
+
 # ----------------------------------------------------------------------------
 # Walk engine state
 class WEState:
@@ -113,7 +123,22 @@ class ErrCode:
   GGN_Unknown        = const(-2)
   Cmd_Unknown        = const(-3)
   Cmd_ParsingErr     = const(-4)
+  LowBattery         = const(-5)
   # ...
+
+# ----------------------------------------------------------------------------
+# Other definitions
+BATT_SERVO_THRES_V   = 7.2
+BATT_LOGIC_THRES_V   = 3.6
+
+BLE_UART_DEVICE_NAME = "hex-uart"
+
+DSTAR_COL_REMOTE     = 70
+DSTAR_COL_STOPPED    = 40
+DSTAR_COL_AUTONOME   = 200
+DSTAR_COL_ADJUST     = 220
+DSTAR_COL_NONE       = 255
+DSTAR_COL_BLUE       = 90
 
 # ----------------------------------------------------------------------------
 # MQTT releated definitions
@@ -137,35 +162,22 @@ CMD_BODY_Y_SHIFT     = "BYS" # body y shift
 CMD_MOVE             = "MOV"
 CMD_NOP              = "NOP" # no operation
 
-
 # ----------------------------------------------------------------------------
-# Other definitions
-ANSI_BLACK           = "\x1b[0m"
-ANSI_RED             = "\x1b[91m"
-ANSI_RED_BKG         = "\x1b[41m"
-ANSI_GREEN           = "\x1b[92m"
-ANSI_GREEN_BKG       = "\x1b[42m"
-ANSI_CYAN            = "\x1b[96m"
-ANSI_CYAN_BKG        = "\x1b[46m"
-ANSI_BLUE            = "\x1b[94m"
-ANSI_BLUE_BKG        = "\x1b[44m"
-ANSI_LILAC           = "\x1b[95m"
-ANSI_LILAC_BKG       = "\x1b[45m"
-
-# ----------------------------------------------------------------------------
-def toLog(sMsg, sTopic="", err=ErrCode.Ok):
+def toLog(sMsg, sTopic="", err=ErrCode.Ok, green=False):
   """ Print message to history
   """
+  c = ""
   if err == ErrCode.Ok:
     s = "INFO" if len(sTopic) == 0 else sTopic
-    c = ""
+    if green:
+      c = ansi.GREEN
   elif err > 0:
     s = "WARNING"
-    c = ANSI_CYAN
+    c = ansi.CYAN
   else:
     s = "ERROR"
-    c = ANSI_RED
-  print(c +"[{0:>12}] {1:35}".format(s, sMsg) +ANSI_BLACK)
+    c = ansi.RED
+  print(c +"[{0:>12}] {1:35}".format(s, sMsg) +ansi.BLACK)
 
 def toLogArray(a, digits=1):
   """ Print an array to the history

@@ -20,14 +20,12 @@ try:
   from hexa_global import *
   import ulab as np
   from math import radians, sin, cos
-  MICROPYTHON = True
 except ModuleNotFoundError:
   # Standard Python imports
   const = lambda x : x
   import numpy as np
   from numpy import radians, sin, cos
-  from walk_engine.hexa_global import *
-  MICROPYTHON = False
+  from hexbotling.hexa_global import *
 
 # ----------------------------------------------------------------------------
 class HexaConfig(object):
@@ -87,14 +85,20 @@ class HexaConfig(object):
   COX_LEN          = const(48)
   FEM_LEN          = const(47)
   TIB_LEN          = const(84)
-  TIB_CORR_ANGLE   = const(50)     # 50, originally 90
+  TIB_CORR_ANGLE   = const(50)     # 50, originally 90?
 
   # Limits within movements are considered finished
   TRAVEL_DEAD_ZONE = const(2)
   TURN_DEAD_ZONE   = const(5)
 
-  # Max. number of blending steps (defaul is 4)
+  # Max. number of blending steps (default is 4)
   MAX_BLEND_STEPS  = const(4)
+
+  # Servo manager: `linear` (1) or `paraboloid` (0) trajectory
+  # ****
+  # TODO: Fix `paraboloid`; currently it results in shaking ...
+  # ****
+  MOVE_LINEAR      = const(1)
 
   # Limits of movement control parameters
   # (Rotations are in [°], travel in [mm], and  delays in [ms])
@@ -102,7 +106,7 @@ class HexaConfig(object):
   BODY_Y_SHIFT_LIM = const(64)
   BODY_X_Z_POS_LIM = np.array([15, BODY_Y_OFFS_MAX +BODY_Y_SHIFT_LIM, 15])
   BODY_XYZ_ROT_LIM = np.array([5, 20, 5])
-  TRAVEL_X_Z_LIM   = np.array([25, 0, 25])
+  TRAVEL_X_Z_LIM   = np.array([40, 0, 40]) #25
   TRAVEL_ROT_Y_LIM = const(25)
   LEG_LIFT_MIN     = const(40)
   LEG_LIFT_MAX     = const(80)
@@ -112,22 +116,21 @@ class HexaConfig(object):
 
   # Start position of feet
   # (Measured from beginning of coxa; leg coordinate system (?))
-  FEM_STRT_ANG     = -10
+  FEM_STRT_ANG     = -20
   TIB_STRT_ANG     = 10
   FEET_INIT_XYZ    = []
-  '''
-  FEET_INIT_XYZ    = np.array([[+85, 75, 0], [+45, 75,-76], [ 45, 75,-76],
-                               [ 85, 75, 0], [ 45, 75, 76], [+45, 75, 76]])
-  '''
 
   # Devices
   # - Servo controller    : "pca9685", "minimaestro18"
   # - Network             : "wlan"
-  # - Client via UART     : "uart_client"
-  DEVICES          = ["minimaestro18", "uart_client"]
+  # - Client via UART     : "uart_client", "ble_client"
+  DEVICES          = ["minimaestro18", "uart_client", "ble_client"]
 
   # Period of housekeeping timer
-  TM_PERIOD        = const(50)
+  TM_PERIOD        = const(40)
+
+  # How often changes in BLE connection are checked
+  CHECK_BLE_ROUNDS = const(5000)
 
   # Level of verbosity (the higher the more)
   VERBOSE          = const(0)
@@ -149,10 +152,7 @@ class HexaConfig(object):
       temp.append([x, 0, z])
     self.COX_OFF_XYZ = np.array(temp)
     self.FEET_INIT_XYZ = self.get_foot_pos(self.FEM_STRT_ANG, self.TIB_STRT_ANG)
-    '''
-    if MICROPYTHON:
-      toLogArray(self.FEET_INIT_XYZ, 0)
-    '''
+    #toLogArray(self.FEET_INIT_XYZ, 0)
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   def get_foot_pos(self, af_deg, at_deg, ac_deg=None):

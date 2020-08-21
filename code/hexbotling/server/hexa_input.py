@@ -18,14 +18,14 @@ try:
   # Micropython imports
   from micropython import const
   from hexa_global import *
-  from misc.parameter import Parameter
+  from robotling_lib.misc.parameter import Parameter
   #from misc.helpers import timed_function
   import ulab as np
 except ModuleNotFoundError:
   # Standard Python imports
   const = lambda x : x
-  from walk_engine.hexa_global import *
-  from walk_engine.misc.parameter import Parameter
+  from hexbotling.hexa_global import *
+  from hexbotling.robotling_lib.misc.parameter import Parameter
   import numpy as np
 
 # ----------------------------------------------------------------------------

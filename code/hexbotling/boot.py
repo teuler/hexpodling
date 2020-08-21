@@ -25,6 +25,7 @@ try:
 except ImportError:
   pass
 
+
 # WLAN access
 try:
   from NETWORK import my_ssid, my_wp2_pwd

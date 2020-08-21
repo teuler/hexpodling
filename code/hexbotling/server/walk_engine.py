@@ -9,23 +9,25 @@
 # ----------------------------------------------------------------------------
 import array
 from micropython import const
-import robotling_board as rb
-from robotling_board_version import BOARD_VER
-from motors.servo_manager import ServoManager
-from misc.helpers import timed_function, TimeTracker
+from carrier_version_server import BOARD_VER
+import robotling_lib.robotling_board as rb
+from robotling_lib.motors.servo_manager import ServoManager
+from robotling_lib.misc.helpers import timed_function, TimeTracker
 
 from hexa_global import *
 from hexa_config_vorpal import HexaConfig
-from hexa_gait_generator import HexaGaitGenerator
+from server.hexa_gait_generator import HexaGaitGenerator
+from hexapod import Hexapod
 
-from platform.platform import platform
+from robotling_lib.platform.platform import platform
 if platform.ID == platform.ENV_ESP32_TINYPICO:
-  import platform.esp32.board_tinypico as board
-  import platform.esp32.busio as busio
-  import platform.esp32.dio as dio
-  import platform.esp32.aio as aio
-  from driver.dotstar import DotStar
-  from machine import Pin, UART
+  from tinypico import get_battery_voltage
+  import robotling_lib.platform.esp32.board_tinypico as board
+  import robotling_lib.platform.esp32.busio as busio
+  import robotling_lib.platform.esp32.dio as dio
+  import robotling_lib.platform.esp32.aio as aio
+  from robotling_lib.driver.dotstar import DotStar
+  from machine import Pin
   import time
 else:
   print("ERROR: No matching hardware libraries in `platform`.")
@@ -68,10 +70,11 @@ class WalkEngine(object):
 
   Properties:
   ----------
-  - dialPosition   : Return position of potentiometer as DIAL_xxx value
+  - dialPosition   : Return position of potentiometer as `DialState.xxx` value
   - servoPower     : Switch servo power on or off
   - dotStarPower   : Turns power to DotStar LED on TinyPICO on or off
   - servoBattery_V : Servo battery in [V]
+  - logicBattery_V : Logics battery in [V]
   - version_as_int : Software version
   - memory         : Returns allocated and free memory as tuple
   """
@@ -91,13 +94,6 @@ class WalkEngine(object):
   POST_SITTING         = const(2)
   POST_WALK            = const(3)
 
-  DIAL_NONE            = const(-1)
-  DIAL_STOP            = const(0)
-  DIAL_AD              = const(1)
-  DIAL_TS              = const(2)
-  DIAL_DEMO            = const(3)
-  DIAL_RC              = const(4)
-
   def __init__(self):
     """ Initialize onboard components
     """
@@ -105,6 +101,10 @@ class WalkEngine(object):
           .format(BOARD_VER/100, __version__, platform.sysInfo[2],
                   platform.sysInfo[0]))
     print("Initializing ...")
+
+    # Get the current time in seconds
+    self._run_duration_s = 0
+    self._start_s = time.time()
 
     # Get the robot's configuration
     self._isServoPowerOn = False
@@ -115,6 +115,8 @@ class WalkEngine(object):
     # Initialize some variables
     self._devices = self.Cfg.DEVICES
     self._uart = None
+    self._ble = None
+    self._bsp = None
     self.ID = platform.GUID
     print("[{0:>12}] {1:35}".format("GUID", self.ID))
 
@@ -138,7 +140,7 @@ class WalkEngine(object):
     # Create servos
     if "minimaestro18" in self.Cfg.DEVICES:
       # Initialize servo driver
-      from motors.servos_mini_maestro_18 import MiniMaestro18
+      from robotling_lib.motors.servos_mini_maestro_18 import MiniMaestro18
       self.ServoCtrl = MiniMaestro18(ch=rb.UART2_CH, _tx=rb.TX2, _rx=rb.RX2)
     else:
       raise NotImplementedError("No compatible servo controller defined")
@@ -157,18 +159,30 @@ class WalkEngine(object):
     self._SPos = array.array('i', [0] *nSrv)
     self._SIDs = array.array('b', [i for i in range(nSrv)])
     toLog("Servo manager ready")
-    toLog("Servo battery = {0:.2f} V".format(self.servoBattery_V))
+
+    # Battery status
+    v = self.servoBattery_V
+    errC = ErrCode.Ok if v > BATT_SERVO_THRES_V else ErrCode.LowBattery
+    toLog("Servo battery = {0:.2f} V".format(v), err=errC, green=True)
+    v = self.logicBattery_V
+    errC = ErrCode.Ok if v > BATT_LOGIC_THRES_V else ErrCode.LowBattery
+    toLog("Logic battery = {0:.2f} V".format(v), err=errC, green=True)
 
     if "wlan" in self._devices:
       # Connect to WLAN, if not already connected
       self.connectToWLAN()
 
     if "uart_client" in self._devices:
-      # Open serial connection to client
-      self._uart = UART(rb.UART_CH, baudrate=rb.BAUD, tx=rb.TX, rx=rb.RX)
+      # Create an UART for a serial connection to the client
+      self._uart = busio.UART(rb.UART_CH, baudrate=rb.BAUD, tx=rb.TX, rx=rb.RX)
       s = "#{0}, tx/rx={1}/{2}, {3} Bd".format(rb.UART_CH, rb.TX,rb.RX, rb.BAUD)
-      #print("[{0:>12}] {1:35}".format("uart", s))
       toLog(s, sTopic="uart")
+    if "ble_client" in self._devices:
+      # Activate bluetooth and create a simple BLE UART for remote control
+      from bluetooth import BLE
+      from robotling_lib.remote.ble_peripheral import BLESimplePeripheral
+      self._ble = BLE()
+      self._bsp = BLESimplePeripheral(self._ble, BLE_UART_DEVICE_NAME)
 
     # Initialize spin function-related variables
     self._spin_period_ms = 0
@@ -182,6 +196,10 @@ class WalkEngine(object):
     # Move servos in "relaxed" position
     self.setPosture(POST_SITTING, force_linear=True)
     self._isServoPowerOn = True
+
+    # First update of robot state representation
+    self.HPR = Hexapod()
+    self.updateRepresentation(full=True)
 
     # Done
     self.Buzzer.beep()
@@ -197,6 +215,18 @@ class WalkEngine(object):
     import gc
     gc.collect()
     return (gc.mem_alloc(), gc.mem_free())
+
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  def updateRepresentation(self, full=False):
+    """ Update the robot's representation object
+    """
+    self.HPR.dialState = self.dialPosition
+    self.HPR.servoPower = self._isServoPowerOn
+    self.HPR.servoBattery_mV = int(self.servoBattery_V *1000)
+    self.HPR.logicBattery_mV = int(self.logicBattery_V *1000)
+    if full:
+      self.HPR.softwareVer = self.version_as_int
+      self.HPR.memory_kB = self.memory
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   def setPosture(self, post=POST_RELAXED, force_linear=False):
@@ -235,8 +265,12 @@ class WalkEngine(object):
     self.servoPower = False
     if self._uart:
       self._uart.deinit()
+    if self._ble:
+      self._bsp.deinit()
+      self._ble.active(False)
     self.Buzzer.warn()
     self.Buzzer.beep()
+    self._run_duration_s = time.time() -self._start_s
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   @property
@@ -261,26 +295,25 @@ class WalkEngine(object):
 
   @servoPower.setter
   def servoPower(self, state):
-    if state is not self._isServoPowerOn:
-      self._isServoPowerOn = state
-      if not state:
-        self.SM.turn_all_off()
+    self._isServoPowerOn = state
+    if not state:
+      self.SM.turn_all_off()
 
   @property
   def dialPosition(self):
     d = self.Potentiometer.value
     if d < 20:
-      return DIAL_STOP
+      return DialState.STOP
     elif d < 300:
-      return DIAL_AD
+      return DialState.AD
     elif d < 1000:
-      return DIAL_TS
+      return DialState.TS
     elif d < 2300:
-      return DIAL_DEMO
+      return DialState.DEMO
     elif d > 4050:
-      return DIAL_RC
+      return DialState.RC
     else:
-      return DIAL_NONE
+      return DialState.NONE
 
   @property
   def servoBattery_V(self):
@@ -289,6 +322,12 @@ class WalkEngine(object):
         w/ correction factor accounting for "real" resistors
     """
     return self._adc_battery.value *0.002773438 *1.066
+
+  @property
+  def logicBattery_V(self):
+    """ Logic battery voltage in [V]
+    """
+    return get_battery_voltage()
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   def update(self):
@@ -369,9 +408,10 @@ class WalkEngine(object):
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   def startPulseDotStar(self, iColor):
-    """ Set color of DotStar and enable pulsing
+    """ Set color of DotStar and enable pulsing; return previous color index
     """
     rgb = self._DS.getColorFromWheel(iColor)
+    iColPrev = self._iColor
     self._iColor = iColor
 
     if (rgb != self._DS_RGB) or not(self._DS_pulse):
@@ -389,6 +429,7 @@ class WalkEngine(object):
       self._DS.show()
       self._DS_pulse = True
       self._DS_fact = 1.0
+    return iColPrev
 
   def _pulseDotStar(self):
     """ Update pulsing, if enabled
@@ -434,7 +475,8 @@ class WalkEngine(object):
     total = free +used
     print("Memory     : {0:.0f}% of {1:.0f}kB heap RAM used."
           .format(used/total*100, total/1024))
-    print("Battery    : servo: {0:.2f}V".format(self.servoBattery_V))
+    print("Batteries  : servo: {0:.2f}V, logic {0:.2f}V"
+          .format(self.servoBattery_V, self.logicBattery_V))
     avg_ms = self._spinTracker.meanDuration_ms
     dur_ms = self._spinTracker.period_ms
     print("Performance: spin: {0:6.3f}ms @ {1:.1f}Hz ~{2:.0f}%"

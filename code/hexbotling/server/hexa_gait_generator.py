@@ -21,9 +21,9 @@ try:
   from micropython import const
   from time import ticks_ms
   from hexa_global import *
-  from hexa_gait import HexaGait
-  from hexa_input import HexaInput
-  from misc.helpers import timed_function
+  from server.hexa_gait import HexaGait
+  from server.hexa_input import HexaInput
+  from robotling_lib.misc.helpers import timed_function
   import ulab as np
   from ulab import numerical
   from ulab import vector
@@ -31,9 +31,9 @@ except ModuleNotFoundError:
   # Standard Python imports
   const = lambda x : x
   from time import time_ns as ticks_ms
-  from walk_engine.hexa_global import *
-  from walk_engine.hexa_gait import HexaGait
-  from walk_engine.hexa_input import HexaInput
+  from hexbotling.hexa_global import *
+  from hexbotling.server.hexa_gait import HexaGait
+  from hexbotling.server.hexa_input import HexaInput
   import numpy as np
 
 # ----------------------------------------------------------------------------
@@ -297,7 +297,7 @@ class HexaGaitGenerator(object):
       spos = np.zeros(cfg.SERVO_COUNT, dtype=np.int16)
       for iServo, (iLeg, iJoint) in enumerate(cfg.JOINT_BY_SERVO):
         spos[iServo] = int(sang[iLeg][iJoint])
-      self._SMan.move(cfg.SERVO_IDS, spos, dur_ms, True)
+      self._SMan.move(cfg.SERVO_IDS, spos, dur_ms, self._Cfg.MOVE_LINEAR)
     if self._verboseLevel > 1:
       print("Joint angles:")
       toLogArray(self._legAngles, digits=0)

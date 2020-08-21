@@ -8,7 +8,7 @@
 #
 # ----------------------------------------------------------------------------
 from time import ticks_ms
-from hexapod import *
+from hexapod_server import *
 
 # ----------------------------------------------------------------------------
 def main():
@@ -26,34 +26,34 @@ def main():
       while True:
         try:
           # Check if dial has changed
-          if r._dialChanged:
-            r._dialChanged = False
-            if r._currDialPos in [0,3]:
-              if r._currDialPos == 0:
+          if r.HPR.dialStateChanged:
+            r.HPR.dialStateChanged = False
+            if r.HPR.dialState in [0,3]:
+              r.Buzzer.beep(220, 20)
+              if r.HPR.dialState == DialState.STOP:
                 # Stop GGN, assume sitting position and power-down
                 r.GGN.stop()
                 r.setPosture(post=r.POST_SITTING)
                 r.servoPower = False
-                r._hexState = HexState.Stop
-              elif r._currDialPos == 1:
-                pass
+                r.HPR.hexState = HexState.Stop
+              elif r.HPR.dialState == DialState.AD:
                 '''
                 # Power up and assume a neutral position
                 r.servoPower = True
                 r.setPosture(post=r.POST_NEUTRAL)
                 r._hexState = HexState.Adjust
                 '''
-              elif r._currDialPos == 3:
+                pass
+              elif r.HPR.dialState == DialState.DEMO:
                 # Activate GGN
                 r.servoPower = True
-                r.setPosture(post=r.POST_WALK)
                 r.GGN.start()
-                r._hexState = HexState.WalkEngineEngaged
+                r.HPR.hexState = HexState.WalkEngineEngaged
               toLog("Dial=={0} -> {1}"
-                    .format(r._currDialPos, HexStateStr[r._hexState]))
+                    .format(r.HPR.dialState, HexStateStr[r.HPR.hexState]))
 
           # Check for new command
-          if r._hexState == HexState.WalkEngineEngaged and r.mIn.receive():
+          if r.HPR.hexState == HexState.WalkEngineEngaged and r.mIn.receive():
             # Handle command ...
             isDone = r.onSerialCommand()
             if not isDone:
@@ -62,10 +62,18 @@ def main():
             toLog("Error parsing command", ErrCode.Cmd_ParsingErr)
             r.Buzzer.warn()
 
+          # Check if client connection has changed (i.e. internal <-> BLE);
+          # (Do this only every cople of seconds and only if more than one
+          #  port is available)
+          if r.multiple_port_types and round % r.Cfg.CHECK_BLE_ROUNDS == 0:
+            r.switch_msg_objects()
+            """
+            r.recreate_message_objects()
+            """
         finally:
           # Keep GGN running and make sure the robot's housekeeping gets
           # updated once per loop
-          if r._hexState == HexState.WalkEngineEngaged:
+          if r.HPR.hexState == HexState.WalkEngineEngaged:
             r.GGN.spin()
           r.spin_ms()
           round += 1
@@ -78,10 +86,13 @@ def main():
     # Power down ...
     r.powerDown()
     r.printReport()
+    '''
+    print(r._run_duration_s, r._run_duration_s/round, round)
+    '''
 
 # ----------------------------------------------------------------------------
 # Create instance of HexaPod, derived from the WalkEngine class
-r = HexaPod()
+r = HexaPodServer()
 
 # Call main
 if __name__ == "__main__":

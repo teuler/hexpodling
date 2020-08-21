@@ -18,13 +18,13 @@ try:
   # Micropython imports
   from micropython import const
   from hexa_global import *
-  from misc.helpers import timed_function
+  from robotling_lib.misc.helpers import timed_function
   import ulab as np
 except ModuleNotFoundError:
   # Standard Python imports
   const = lambda x : x
   import numpy as np
-  from walk_engine.hexa_global import *
+  from hexbotling.hexa_global import *
 
 # ----------------------------------------------------------------------------
 class HexaGait(object):
