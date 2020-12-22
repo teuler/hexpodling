@@ -20,9 +20,14 @@ except ModuleNotFoundError:
   const = lambda x : x
   from hexbotling.hexa_global import *
 
+import robotling_lib.misc.rmsg as rmsg
+
 # ----------------------------------------------------------------------------
 class Hexapod(object):
   """Hexapod representation class"""
+
+  SRV = const(0)
+  CLI = const(1)
 
   def __init__(self):
     """ Initialize representation
@@ -32,16 +37,20 @@ class Hexapod(object):
 
     self.servoPower = False
     self.servoBattery_mV = 0
-    self.logicBattery_mV = 0
+    self.logicBattery_mV = [0, 0]
+    self.serverLogicBattery_mV = 0
 
-    self.softwareVer = 0
-    self.memory_kB = 0
+    self.softwareVer = [0, 0]
+    self.memory_kB = [0, 0]
 
     self.hexState = HexState.Undefined
     # ...
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  @property
   def asDict(self):
+    """ Return object as dictionary
+    """
     d = dict()
     d["State"] = {"dialState": self.dialState,
                   "hexState": self.hexState}
@@ -53,6 +62,14 @@ class Hexapod(object):
     return d
 
   def fromMsg(self, msg):
-    pass
+    """ Populate object from STA message
+    """
+    if msg.token == rmsg.TOK_STA:
+      d = msg._data[0]
+      self.hexState = d[0]
+      self.dialState = d[2]
+      self.servoPower = d[3]
+      self.servoBattery_mV = d[4]
+      self.logicBattery_mV[SRV] = d[5]
 
 # ----------------------------------------------------------------------------

@@ -86,7 +86,7 @@ class DialState:
   RC                 = const(4)
 
 # ----------------------------------------------------------------------------
-# Walk engine state
+# Internal walk engine state
 class WEState:
   Standby            = const(0)  # Hardware initialized, GGN off
   Ready              = const(1)  # GGN on but not walking
@@ -105,12 +105,27 @@ class HexState:
   Stop               = const(1)  # Dial==Stop, Servo power off
   Adjust             = const(2)  # Dial==Adj, POST_NEUTRAL
   WalkEngineEngaged  = const(3)  # Dial==Demo; WEState==Ready or ==Walking
-
-HexStateStr = dict([
+  # ...
+  '''
+  # *************
+  # *************
+  Add here also behavioural states?
+  # *************
+  # *************
+  '''
+HexStateCol         = bytearray([255, 40, 220, 200, 70])
+HexStateStr         = dict([
   (HexState.Undefined, "none"),
   (HexState.Stop, "stopped, servos off"),
   (HexState.Adjust, "adjust, servos neutral"),
   (HexState.WalkEngineEngaged, "walk engine engaged")])
+
+# Other color wheel colors
+PIXEL_COL_BLUETOOTH   = 70
+PIXEL_COL_BLUE        = 90
+PIXEL_COL_ORANGE      = 218
+PIXEL_COL_GREEN       = 200
+# ...
 
 # ----------------------------------------------------------------------------
 # Errors
@@ -124,6 +139,7 @@ class ErrCode:
   Cmd_Unknown        = const(-3)
   Cmd_ParsingErr     = const(-4)
   LowBattery         = const(-5)
+  NotImplemented     = const(-6)
   # ...
 
 # ----------------------------------------------------------------------------
@@ -132,13 +148,6 @@ BATT_SERVO_THRES_V   = 7.2
 BATT_LOGIC_THRES_V   = 3.6
 
 BLE_UART_DEVICE_NAME = "hex-uart"
-
-DSTAR_COL_REMOTE     = 70
-DSTAR_COL_STOPPED    = 40
-DSTAR_COL_AUTONOME   = 200
-DSTAR_COL_ADJUST     = 220
-DSTAR_COL_NONE       = 255
-DSTAR_COL_BLUE       = 90
 
 # ----------------------------------------------------------------------------
 # MQTT releated definitions
@@ -163,7 +172,7 @@ CMD_MOVE             = "MOV"
 CMD_NOP              = "NOP" # no operation
 
 # ----------------------------------------------------------------------------
-def toLog(sMsg, sTopic="", err=ErrCode.Ok, green=False):
+def toLog(sMsg, sTopic="", err=ErrCode.Ok, green=False, color=None):
   """ Print message to history
   """
   c = ""
@@ -177,6 +186,8 @@ def toLog(sMsg, sTopic="", err=ErrCode.Ok, green=False):
   else:
     s = "ERROR"
     c = ansi.RED
+  if color:
+    c = color
   print(c +"[{0:>12}] {1:35}".format(s, sMsg) +ansi.BLACK)
 
 def toLogArray(a, digits=1):
@@ -194,6 +205,5 @@ def toLogArray(a, digits=1):
     str = str[:-1] +"],"
   str = str[:-1] +"]" if n > 1 else str[:-1]
   print(str)
-
 
 # ----------------------------------------------------------------------------

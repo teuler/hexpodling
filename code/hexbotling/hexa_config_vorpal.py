@@ -121,10 +121,13 @@ class HexaConfig(object):
   FEET_INIT_XYZ    = []
 
   # Devices
-  # - Servo controller    : "pca9685", "minimaestro18"
+  # - Servo controller    : "minMaestro18"
   # - Network             : "wlan"
-  # - Client via UART     : "uart_client", "ble_client"
-  DEVICES          = ["minimaestro18", "uart_client", "ble_client"]
+  # - Client              : "uart_client", "ble_client"
+  # - Distance sensor     : "tera_evomini"
+  # - Compass             : "bno055"
+  # - Display             : "ssd1327_128x128"
+  DEVICES          = ["minMaestro18", "uart_client", "ble_client"]
 
   # Period of housekeeping timer
   TM_PERIOD        = const(40)
@@ -134,6 +137,8 @@ class HexaConfig(object):
 
   # Level of verbosity (the higher the more)
   VERBOSE          = const(0)
+  NO_BUZZER        = const(1)
+  DEBUG_LINK       = const(0)
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   def __init__(self):
@@ -176,7 +181,7 @@ class HexaConfig(object):
     """ Return the servo calibration values for the respective servo
         controller
     """
-    if "minimaestro18" in self.DEVICES:
+    if "minMaestro18" in self.DEVICES:
       s06_0 = 1640
       s07_0 = 1600
       s08_0 = 1570

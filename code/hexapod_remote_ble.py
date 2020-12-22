@@ -57,7 +57,7 @@ def getCmdFromJoystickInput():
   bo_y = None
   bs_y = None
   lh = None
-  mCmd.clear()
+  mCmd.reset()
 
   # Button `A` switches between walk mode and body mode
   bA = JS.BtnA.pressed
