@@ -8,10 +8,6 @@ The main differences between the original and the version described here are:
 * Programmed in [MicroPython](http://micropython.org/)
 * Supports current sensing (load) for up to 8 servos, e.g. to detect if the robot is stuck
 * Accepts an additional controller board for autonomous behaviour
-
-The "hexbotling" is driven by two microcontrollers communicating via a serial connection: 
-* A [TinyPICO](https://www.tinypico.com/) ESP32 microcontroller implements the "walk engine", which controls the servos, sequences leg movements and gaits (inverse kinematics), and manages the power. The "walk engine" accepts simple commands via an onboard serial port or via BLE. With the latter, the robot can be remote-controlled. 
-* A [Feathers2](https://feathers2.io/) ESP32-S2 microcontroller implements the second controller board ("behaviour engine") for autonomous behaviour. It has connectors for various sensors.
     
 Please find the details in the [WiKi](https://github.com/teuler/hexbotling/wiki).
 
