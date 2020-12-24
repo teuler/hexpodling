@@ -9,7 +9,7 @@ The main differences between the original and the version described here are:
 * Supports current sensing (load) for up to 8 servos, e.g. to detect if the robot is stuck
 * Accepts an additional controller board for autonomous behaviour
     
-Please find the details [here](https://teuler.gitbook.io/hexbotling/).
+Please find the details, see [Wiki](https://github.com/teuler/hexbotling/wiki).
 
 ### Release Notes
 
