@@ -14,3 +14,7 @@ Please find the details, see [Wiki](https://github.com/teuler/hexbotling/wiki).
 ### Release Notes
 
 * 2020-06-27 - Initial release
+* 2020-12-27 - Updates - Still work in progress
+  * Wiki pages 'Mechanics' and 'Boards' added
+  * Code updated (now also some initial code for the client microcontroller)
+  * Both boards - for the "walk engine" and for the "behavior engine" - revised (including bug fixes)
