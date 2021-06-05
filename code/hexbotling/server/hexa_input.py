@@ -5,9 +5,8 @@
 # Class that comprises the input paramaters that control the gain generator
 #
 # The MIT License (MIT)
-# Copyright (c) 2020 Thomas Euler
+# Copyright (c) 2020-21 Thomas Euler
 # 2020-04-02, First version
-#
 # ----------------------------------------------------------------------------
 import math
 try:
@@ -19,8 +18,7 @@ try:
   from micropython import const
   from hexa_global import *
   from robotling_lib.misc.parameter import Parameter
-  #from misc.helpers import timed_function
-  import ulab as np
+  from ulab import numpy as np
 except ModuleNotFoundError:
   # Standard Python imports
   const = lambda x : x
@@ -52,7 +50,7 @@ class HexaInput(object):
     # Body offset (0=down, 35=default up) and y-shift
     self.bodyYOffs = Parameter(0, [0, cfg.BODY_Y_OFFS_MAX], 0, nb, "mm")
     r = cfg.BODY_Y_SHIFT_LIM
-    self.bodyYShift = Parameter(0, [-r, r], unit="mm")
+    self.bodyYShift = Parameter(gait.bodyYOffset, [-r, r], unit="mm")
 
     # Current travel length (x,z), rotation (y), and height
     r = cfg.TRAVEL_X_Z_LIM
@@ -70,7 +68,7 @@ class HexaInput(object):
     self.xyzBodyRot = Parameter(v3, [-r, r], unit="°")
 
     # Movement speed via adjustible delay and input-depdent delay
-    self.delaySpeed_ms = Parameter(100, [0, cfg.DELAY_SPEED_MAX], 0, nb, "ms")
+    self.delaySpeed_ms = Parameter(80, [0, cfg.DELAY_SPEED_MAX], 0, nb, "ms")
     self.delayInput = Parameter(0, [cfg.DELAY_INPUT_MIN, cfg.DELAY_INPUT_MAX])
 
     # Target angle [0..359°] when rotating via `travelRotY`
@@ -93,7 +91,6 @@ class HexaInput(object):
     self.doEmergStop = False
     self.controlMode = GGN_MODE_walk
 
-  #@timed_function
   def set_pos(self, bo_y, bs_y, bp_x_z, br_xyz, lh, tl_x_z, tr_y):
     """ Change body position-related parameters
         with bo_y     bodyYOffs; 0=down, 35=default up
@@ -125,7 +122,6 @@ class HexaInput(object):
     self.delaySpeed_ms.val = ds
     self.delayInput.val = di
 
-  #@timed_function
   def set_pos_timing(self, bo_y, lh, tl_x_z, tr_y, ds, hd=GGN_InvalidAngle):
     """ Change the most important position and timing parameters
         with bo_y     bodyYOffs; 0=down, 35=default up
@@ -142,8 +138,7 @@ class HexaInput(object):
     self.x_zTravelLen.val = tl_x_z
     self.travelRotY.val = tr_y
     self.delaySpeed_ms.val = ds
-    if hd is not None:
-      self.tarAngle_deg.val = hd % 360
+    self.tarAngle_deg.val = hd % 360 if hd is not GGN_InvalidAngle else -1
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   def log(self):

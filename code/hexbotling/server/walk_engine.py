@@ -4,13 +4,17 @@
 # hexapod server board
 #
 # The MIT License (MIT)
-# Copyright (c) 2020 Thomas Euler
+# Copyright (c) 2020-21 Thomas Euler
 # 2020-01-06, v1
+# 2021-01-08, v1.1, - New revision of server board (v0.3)
+#                   - I2C compass added (BNO055)
+#                   - Servo load processing added
 # ----------------------------------------------------------------------------
 import array
 from micropython import const
 from robotling_board_version import BOARD_VER
 import robotling_lib.robotling_board as rb
+import robotling_lib.misc.ansi_color as ansi
 from robotling_lib.motors.servo_manager import ServoManager
 from robotling_lib.robotling_base import RobotlingBase
 from robotling_lib.misc.helpers import timed_function
@@ -24,14 +28,15 @@ from robotling_lib.platform.platform import platform
 if platform.ID == platform.ENV_ESP32_TINYPICO:
   from tinypico import get_battery_voltage
   import robotling_lib.platform.esp32.board_tinypico as board
-  import robotling_lib.platform.esp32.busio as busio
-  import robotling_lib.platform.esp32.dio as dio
+  from robotling_lib.platform.esp32.busio import UART, I2CBus
   import robotling_lib.platform.esp32.aio as aio
+  import robotling_lib.platform.esp32.dio as dio
   import time
+  I2C_SCAN = True
 else:
   print("ERROR: No matching hardware libraries in `platform`.")
 
-__version__      = "0.1.0.0"
+__version__      = "0.1.1.0"
 
 # ----------------------------------------------------------------------------
 class WalkEngine(RobotlingBase):
@@ -39,11 +44,12 @@ class WalkEngine(RobotlingBase):
 
   Objects:
   -------
-  - greenLED       : on(), off()
+  - yellowLED      : on(), off()
   - power5V        : on(), off()
   - Buzzer         : freq_Hz(), beep(freq=440)
   - Potentiometer  : value
   - SM             : Servo manager
+  - Compass        : Compass (BNO055)
 
   Methods:
   -------
@@ -67,14 +73,14 @@ class WalkEngine(RobotlingBase):
   - logicBattery_V : Logics battery in [V]
   - version_as_int : Software version
   """
-  COX_NEUTRAL          = const(0)   # Special leg and hip angles ...
+  COX_NEUTRAL          = const(0)    # Special leg and hip angles ...
   FEM_NEUTRAL          = const(0)
-  FEM_SIT              = const(-55) #-40
+  FEM_SIT              = const(-55)  #-40
   TIB_NEUTRAL          = const(0)
-  TIB_SIT              = const(0)   # 35
+  TIB_SIT              = const(0)    # 35
   TIB_RELAXED          = const(-90)
 
-  POST_NEUTRAL         = const(0)   # Postures
+  POST_NEUTRAL         = const(0)    # Postures
   POST_RELAXED         = const(1)
   POST_SITTING         = const(2)
   POST_WALK            = const(3)
@@ -85,30 +91,45 @@ class WalkEngine(RobotlingBase):
     print("WalkEngine (board v{0:.2f}, software v{1}) w/ MicroPython {2} ({3})"
           .format(BOARD_VER/100, __version__, platform.sysInfo[2],
                   platform.sysInfo[0]))
-    print("Initializing ...")
-    super().__init__()
-    print("[{0:>12}] {1:35}".format("GUID", self.ID))
+    toLog("Initializing ...", head=False)
+    self.yellowLED = dio.DigitalOut(rb.YELLOW_LED, True)
+    super().__init__(MCP3208=True)
+    toLog(self.ID, sTopic="GUID")
+    #print("[{0:>12}] {1:35}".format("GUID", self.ID))
 
     # Get the robot's configuration
     self._isServoPowerOn = False
     self.Cfg = HexaConfig()
     verbose = self.Cfg.VERBOSE
     nSrv = self.Cfg.SERVO_COUNT
+    self.loadLims = self.Cfg.get_servo_load_ranges()
 
     # Initialize some variables
     self._devices = self.Cfg.DEVICES
+    self.Compass = None
     self._uart = None
     self._ble = None
     self._bsp = None
 
-    # Initialize on-board hardware
-    self.greenLED = dio.DigitalOut(rb.GREEN_LED)
+    # Initialize remaining on-board hardware
     self.Buzzer = dio.Buzzer(rb.BUZZER)
     self.Buzzer.mute = self.Cfg.NO_BUZZER
     self.Potentiometer = aio.AnalogIn(rb.ADC_POT)
     self._adc_battery = aio.AnalogIn(rb.ADC_BAT)
+    self._MCP3208.channelMask = self.Cfg.SERVO_LOAD_MASK
+
+    # Get I2C bus
+    self._I2C = I2CBus(freq=rb.I2C_FRQ, scl=rb.SCL, sda=rb.SDA, scan=I2C_SCAN)
+    self._nI2CDev = len(self._I2C.deviceAddrList) if I2C_SCAN else -1
+
+    # Initialize other devices
+    if "bno055" in self.Cfg.DEVICES and self._nI2CDev != 0:
+      # Connect to bno055
+      from robotling_lib.sensors.compass_bno055 import Compass
+      self.Compass = Compass(self._I2C)
 
     # Create servos
+    toLog("Initializing servo and power management ...", head=False)
     if "minMaestro18" in self.Cfg.DEVICES:
       # Initialize servo driver
       from robotling_lib.motors.servos_mini_maestro_18 import MiniMaestro18
@@ -117,7 +138,7 @@ class WalkEngine(RobotlingBase):
       raise NotImplementedError("No compatible servo controller defined")
 
     # Create servo manager and servos ...
-    self.SM = ServoManager(nSrv, verbose=False)
+    self.SM = ServoManager(nSrv, verbose=self.Cfg.VERBOSE > 1)
     self._Servos = []
     ranges_us = self.Cfg.get_servo_ranges_us()
     ranges_dg = self.Cfg.SERVO_RANGES
@@ -127,6 +148,7 @@ class WalkEngine(RobotlingBase):
       self._Servos[i].change_range(ranges_us[i], ranges_dg[i], directions[i])
       self._Servos[i].change_behavior(127, 0)
       self.SM.add_servo(i, self._Servos[i])
+    _ = self.ServoCtrl.channels[0].get_error()
     self._SPos = array.array('i', [0] *nSrv)
     self._SIDs = array.array('b', [i for i in range(nSrv)])
     toLog("Servo manager ready", green=True)
@@ -140,11 +162,14 @@ class WalkEngine(RobotlingBase):
     toLog("Logic battery = {0:.2f} V".format(v), err=errC, green=True)
 
     # Serial connection to client
+    toLog("Initializing client interface(s) ...", head=False)
     if "uart_client" in self._devices:
       # Create an UART for a serial connection to the client
-      self._uart = busio.UART(rb.UART_CH, baudrate=rb.BAUD, tx=rb.TX, rx=rb.RX)
+      self._uart = UART(rb.UART_CH, baudrate=rb.BAUD, tx=rb.TX, rx=rb.RX)
+      self._uart.init(bits=8, parity=None, stop=1)
       s = "#{0}, tx/rx={1}/{2}, {3} Bd".format(rb.UART_CH, rb.TX,rb.RX, rb.BAUD)
       toLog(s, sTopic="uart(server)")
+
     if "ble_client" in self._devices:
       # Activate bluetooth and create a simple BLE UART for remote control
       from bluetooth import BLE
@@ -153,7 +178,8 @@ class WalkEngine(RobotlingBase):
       self._bsp = BLESimplePeripheral(self._ble, BLE_UART_DEVICE_NAME)
 
     # Create gait generator instance for kinematics
-    self.GGN = HexaGaitGenerator(self.Cfg, self.greenLED, self.SM, verbose)
+    toLog("Initializing walk engine ...", head=False)
+    self.GGN = HexaGaitGenerator(self.Cfg, self.yellowLED, self.SM, verbose)
 
     # Move servos in "relaxed" position
     self.setPosture(POST_SITTING, force_linear=True)
@@ -161,11 +187,12 @@ class WalkEngine(RobotlingBase):
 
     # First update of robot state representation
     self.HPR = Hexapod()
-    self.updateRepresentation(full=True)
+    self.updateRepresentation(force_all=True)
 
     # Done
     self.Buzzer.beep()
-    print("... done.")
+    self.yellowLED.off()
+    toLog("... done.", head=False)
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   @property
@@ -173,15 +200,30 @@ class WalkEngine(RobotlingBase):
     return int(__version__.replace(".", ""))
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-  #@timed_function
-  def updateRepresentation(self, full=False):
-    """ Update the robot's representation object
+  def updateRepresentation(self, force_all=False):
+    """ Update the robot's representation object. If `force_all` is True,
+        all variables are updated, including the ones that are frequently
+        updated outside this call.
     """
-    self.HPR.dialState = self.dialPosition
-    self.HPR.servoPower = self._isServoPowerOn
-    self.HPR.servoBattery_mV = int(self.servoBattery_V *1000)
-    self.HPR.logicBattery_mV[self.HPR.SRV] = int(self.logicBattery_V *1000)
-    if full:
+    t = time.ticks_ms()
+
+    dt = time.ticks_diff(t, self.HPR._lastUpdPower)
+    if force_all or dt >= self.Cfg.HRP_POWER_MS:
+      # Parameters (e.g. battery) that do not need to be updated so frequently
+      self.HPR.servoPower = self._isServoPowerOn
+      self.HPR.servoBattery_mV = int(self.servoBattery_V *1000)
+      self.HPR.logicBattery_mV = int(self.logicBattery_V *1000)
+      self.HPR._lastUpdPower = t
+
+    if force_all:
+      # Parameters that are usually updated outside (e.g. in `update()`)
+      self.HPR.dialState = self.dialPosition
+      self.HPR.dialStateChanged = True
+      if self.Compass:
+        self.HPR.headPitchRoll_deg = self.Compass.get_heading_3d()[1:]
+      # ...
+
+      # Parameters (e.g. software version) that need to be updated rarely
       self.HPR.softwareVer[self.HPR.SRV] = self.version_as_int
       self.HPR.memory_kB[self.HPR.SRV] = self.memory
 
@@ -217,8 +259,10 @@ class WalkEngine(RobotlingBase):
   def powerDown(self):
     """ Switch off servos, close connections, etc.
     """
-    self.setPosture(post=POST_SITTING)
+    #self.setPosture(post=POST_SITTING)
     self.servoPower = False
+    self.SM.deinit()
+    self.ServoCtrl.deinit()
     if self._uart:
       self._uart.deinit()
     if self._ble:
@@ -275,9 +319,17 @@ class WalkEngine(RobotlingBase):
     """
     super().updateStart()
     self._pulsePixel()
-    # ****************
-    # ****************
-    # ****************
+
+    # Read compass data
+    if self.Compass:
+      self.HPR.headPitchRoll_deg = self.Compass.get_heading_3d()[1:]
+
+    # Process servo load and get foot position
+    # (_MCP3208.update() is already called in RobotlingBase.updateStart)
+    for i in range(self.Cfg.SERVO_LOAD_CHANS):
+      self.HPR.servoLoad[i] = int((self._MCP3208.data[i] -self.loadLims[i][0])
+                                  /self.loadLims[i][2] *100)
+    self.HPR.legYPos[0:] = array.array("h", self.GGN._xyzCurrFootPos.transpose()[1])
     super().updateEnd()
 
   def spin_while_moving(self, t_spin_ms=50):

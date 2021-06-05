@@ -5,7 +5,7 @@
 # Gait class
 #
 # The MIT License (MIT)
-# Copyright (c) 2020 Thomas Euler
+# Copyright (c) 2020-21 Thomas Euler
 # 2020-04-02, First version
 #
 # ----------------------------------------------------------------------------
@@ -19,7 +19,7 @@ try:
   from micropython import const
   from hexa_global import *
   from robotling_lib.misc.helpers import timed_function
-  import ulab as np
+  from ulab import numpy as np
 except ModuleNotFoundError:
   # Standard Python imports
   const = lambda x : x
@@ -49,7 +49,8 @@ class HexaGait(object):
     if self._type == GGN_GAIT_default:
       # Tripod 6-steps (= gait type 4 in Phoenix code)
       self.nStepsInGait      = 8     # Number of steps in gait
-      self.legLiftHeightDef  = 50    # Default travel height
+      self.legLiftHeightDef  = 65 #50# Default travel height
+      self.bodyYOffset       = 10
       self.isHalfLiftHeigth  = True  # Outer positions of lifted half height
       self.TLDivFact         = 4     # n steps w/ leg on the floor (walking)
       self.nPosLifted        = 3     # n positions single leg is lifted (1-3)

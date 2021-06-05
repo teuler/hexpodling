@@ -3,7 +3,7 @@
 # General definitions
 #
 # The MIT License (MIT)
-# Copyright (c) 2020 Thomas Euler
+# Copyright (c) 2020-21 Thomas Euler
 # 2020-04-02, First version
 #
 # ----------------------------------------------------------------------------
@@ -14,7 +14,10 @@ except NameError:
 try:
   # Micropython imports
   from micropython import const
-  import ulab as np
+  try:
+    from ulab import numpy as np
+  except ImportError:
+    import ulab as np
   shape = lambda x : x.shape()
   import robotling_lib.misc.ansi_color as ansi
   MICROPYTHON = True
@@ -140,6 +143,7 @@ class ErrCode:
   Cmd_ParsingErr     = const(-4)
   LowBattery         = const(-5)
   NotImplemented     = const(-6)
+  TookTooLong        = const(-7)
   # ...
 
 # ----------------------------------------------------------------------------
@@ -172,7 +176,7 @@ CMD_MOVE             = "MOV"
 CMD_NOP              = "NOP" # no operation
 
 # ----------------------------------------------------------------------------
-def toLog(sMsg, sTopic="", err=ErrCode.Ok, green=False, color=None):
+def toLog(sMsg, sTopic="", err=ErrCode.Ok, green=False, color=None, head=True):
   """ Print message to history
   """
   c = ""
@@ -188,7 +192,11 @@ def toLog(sMsg, sTopic="", err=ErrCode.Ok, green=False, color=None):
     c = ansi.RED
   if color:
     c = color
-  print(c +"[{0:>12}] {1:35}".format(s, sMsg) +ansi.BLACK)
+  if head:
+    print(c +"[{0:>12}] {1:35}".format(s, sMsg) +ansi.BLACK)
+  else:
+    c = ansi.LIGHT_YELLOW if not color else color
+    print(c +sMsg +ansi.BLACK)
 
 def toLogArray(a, digits=1):
   """ Print an array to the history

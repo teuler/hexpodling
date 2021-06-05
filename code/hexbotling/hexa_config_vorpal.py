@@ -5,11 +5,9 @@
 # Geometrical configuration of the modified Vorpal 3DOF hexapod
 #
 # The MIT License (MIT)
-# Copyright (c) 2020 Thomas Euler
+# Copyright (c) 2020-21 Thomas Euler
 # 2020-04-02, First version
-#
 # ----------------------------------------------------------------------------
-import math
 try:
   ModuleNotFoundError
 except NameError:
@@ -18,8 +16,11 @@ try:
   # Micropython imports
   from micropython import const
   from hexa_global import *
-  import ulab as np
   from math import radians, sin, cos
+  try:
+    from ulab import numpy as np
+  except ImportError:
+    import ulab as np
 except ModuleNotFoundError:
   # Standard Python imports
   const = lambda x : x
@@ -30,6 +31,45 @@ except ModuleNotFoundError:
 # ----------------------------------------------------------------------------
 class HexaConfig(object):
 
+  # pylint: disable=bad-whitespace
+  # Period of housekeeping timer (in [ms])
+  TM_PERIOD        = const(40)
+
+  # Timeouts for serial server-client connection
+  UART_TIME_OUT_MS = const(2)
+  # ...
+
+  # How often changes in BLE connection are checked
+  # (check when `round % CHECK_BLE_ROUNDS == 0`)
+  CHECK_BLE_ROUNDS = const(5000)
+  CAL_COLCT_ROUNDS = const(100)
+
+  # Robot representation updates
+  # (delays for slowly changing parameters; update every x ms)
+  HRP_POWER_MS     = const(1000)
+  # ...
+
+  # Flags
+  VERBOSE          = const(0)   # The higher, the more information
+  NO_BUZZER        = const(1)   # Buzzer on/off
+  DEBUG_LINK       = const(0)   # Start in command mode to test server-client
+  START_W_DISPLAY  = const(0)   # Start w/ display on; slows everything ...
+
+  # Devices
+  # - Servo controller    : "minMaestro18"
+  # - Network             : "wlan"
+  # - Client              : "uart_client", "ble_client"
+  # - Distance sensor     : "tera_evomini"
+  # - Compass             : "bno055"
+  # - Display             : "ssd1327_128x128"
+  DEVICES          = ["minMaestro18", "bno055", "ble_client"]
+
+  # Active servo load sensing channels
+  SERVO_LOAD_MASK  = 0x00FF
+  SERVO_LOAD_CHANS = 4
+  CAL_MAX_N        = 1000
+
+  # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   # Servo-related definitions
   SERVO_COUNT        = 18
   SERVO_IDS          = np.array(range(SERVO_COUNT), dtype=np.uint8)
@@ -119,26 +159,7 @@ class HexaConfig(object):
   FEM_STRT_ANG     = -20
   TIB_STRT_ANG     = 10
   FEET_INIT_XYZ    = []
-
-  # Devices
-  # - Servo controller    : "minMaestro18"
-  # - Network             : "wlan"
-  # - Client              : "uart_client", "ble_client"
-  # - Distance sensor     : "tera_evomini"
-  # - Compass             : "bno055"
-  # - Display             : "ssd1327_128x128"
-  DEVICES          = ["minMaestro18", "uart_client", "ble_client"]
-
-  # Period of housekeeping timer
-  TM_PERIOD        = const(40)
-
-  # How often changes in BLE connection are checked
-  CHECK_BLE_ROUNDS = const(5000)
-
-  # Level of verbosity (the higher the more)
-  VERBOSE          = const(0)
-  NO_BUZZER        = const(1)
-  DEBUG_LINK       = const(0)
+  # pylint: enable=bad-whitespace
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   def __init__(self):
@@ -152,8 +173,8 @@ class HexaConfig(object):
     # (considering the above coordinate system)
     temp = []
     for i in range(6):
-      x = -math.cos(math.radians(i*self.BODY_COX_ANG)) *self.BODY_R
-      z = -math.sin(math.radians(i*self.BODY_COX_ANG)) *self.BODY_R
+      x = -cos(radians(i*self.BODY_COX_ANG)) *self.BODY_R
+      z = -sin(radians(i*self.BODY_COX_ANG)) *self.BODY_R
       temp.append([x, 0, z])
     self.COX_OFF_XYZ = np.array(temp)
     self.FEET_INIT_XYZ = self.get_foot_pos(self.FEM_STRT_ANG, self.TIB_STRT_ANG)
@@ -212,5 +233,17 @@ class HexaConfig(object):
               ( 840, (1900 -840)/90 *(35 -2) +1900)]
     else:
       return []
+
+  def get_servo_load_ranges(self):
+    """ Return the servo load calibration ranges
+    """
+    return np.array([[30, 727, 696],
+                     [35, 1167, 1131],
+                     [235, 1034, 799],
+                     [297, 1147, 850],
+                     [0, 0, 0],
+                     [0, 0, 0],
+                     [0, 0, 0],
+                     [0, 0, 0]])
 
 # ----------------------------------------------------------------------------

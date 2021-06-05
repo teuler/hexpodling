@@ -5,28 +5,25 @@
 # Gait generator (GGN) class
 #
 # The MIT License (MIT)
-# Copyright (c) 2020 Thomas Euler
+# Copyright (c) 2020-21 Thomas Euler
 # 2020-04-02, First version
-#
+# 2021-01-18, Foot positions captured
 # ----------------------------------------------------------------------------
-import math
 import array
+import math
 try:
   ModuleNotFoundError
 except NameError:
   ModuleNotFoundError = ImportError
 try:
   # Micropython imports
-  from machine import Timer
   from micropython import const
-  from time import ticks_ms
+  from time import ticks_ms, ticks_diff
   from hexa_global import *
   from server.hexa_gait import HexaGait
   from server.hexa_input import HexaInput
   from robotling_lib.misc.helpers import timed_function
-  import ulab as np
-  from ulab import numerical
-  from ulab import vector
+  from ulab import numpy as np
 except ModuleNotFoundError:
   # Standard Python imports
   const = lambda x : x
@@ -40,11 +37,12 @@ except ModuleNotFoundError:
 class HexaGaitGenerator(object):
   """ Gait generator (GGN) control and status parameters
   """
-  def __init__(self, config, led, servo_man=None, verbose=0):
+  def __init__(self, config, led, servo_man, verbose=0):
     # Initialize
     self._isReady = False
     self._verboseLevel = verbose
     self._Cfg = config
+    assert servo_man is not None, "Why is no servo manager defined?"
     self._SMan = servo_man
     self._LED = led
     self._Gait = HexaGait()
@@ -82,6 +80,9 @@ class HexaGaitGenerator(object):
     # Current leg angles from IK and converted into servo angles
     self._legAngles = np.zeros((LEG_COUNT, 3))
     self._servoAngles = np.zeros((LEG_COUNT, 3))
+
+    # Current foot positions
+    self._xyzCurrFootPos = np.zeros((LEG_COUNT, 3), dtype=np.int16)
 
     # General state and error
     self.walkEngineState = WEState.Standby
@@ -210,6 +211,7 @@ class HexaGaitGenerator(object):
       xyz1 = np.array(f1*lgxyz[iLeg] +f2*boxyz.val +gaxyz[iLeg])
       xyz2 = self._bodyIK(xyz1, gait.rotY[iLeg], iLeg)
       xyz3 = np.array(lgxyz[iLeg] +f1*boxyz.val +f3*xyz2 +f1*(gaxyz[iLeg]))
+      self._xyzCurrFootPos[iLeg] = xyz3
       self.lastIKSolRes += self._legIK(xyz3, iLeg)
 
     if self._verboseLevel > 0:
@@ -263,64 +265,82 @@ class HexaGaitGenerator(object):
       else:
         toLog("GGN was turned OFF")
 
+    tdt = ticks_diff(ticks_ms(), t1_ms)
+    if tdt > 60:
+      toLog("_compute_next_move {0} ms".format(tdt), err=ErrCode.TookTooLong)
+
     self.isOnPrev = inp.isOn
     if self._verboseLevel > 0:
       self.log_status()
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+  #@timed_function
   def _execMove(self):
     """ Executes the move based on the servo angles in `self._legAngles`
         and updates the GGN status and timing parameters.
     """
-    self._commitServoUpdate(self.moveDur_ms)
-    t_ms = ticks_ms()
-    self.lastMoveLate_ms = t_ms -self.tMoveStart_ms -self.lastMoveDur_ms
-    self.tMoveStart_ms = t_ms
-    self.lastMoveDur_ms = self.moveDur_ms
-    self.moveDur_ms = self.nextMoveDur_ms
-    self.state = GGNState.NeedsToCompute
-
-  def _startServoUpdate(self):
-    """ Translate joint angles and prepare servo update
-    """
-    self._servoAngles = np.array(self._legAngles)
-    self._servoAngles[:,2] = -self._servoAngles[:,2]
-
-  #@timed_function
-  def _commitServoUpdate(self, dur_ms):
-    """ Commit servo update
-    """
-    if self._SMan:
-      # Move servos
-      cfg = self._Cfg
-      sang = self._servoAngles
-      spos = np.zeros(cfg.SERVO_COUNT, dtype=np.int16)
-      for iServo, (iLeg, iJoint) in enumerate(cfg.JOINT_BY_SERVO):
-        spos[iServo] = int(sang[iLeg][iJoint])
-      self._SMan.move(cfg.SERVO_IDS, spos, dur_ms, self._Cfg.MOVE_LINEAR)
+    # Move servos
+    t1_ms = ticks_ms()
+    cfg = self._Cfg
+    dur = self.moveDur_ms
+    sang = self._servoAngles
+    spos = np.zeros(cfg.SERVO_COUNT, dtype=np.int16)
+    for iServo, (iLeg, iJoint) in enumerate(cfg.JOINT_BY_SERVO):
+      spos[iServo] = int(sang[iLeg][iJoint])
+    self._SMan.move(cfg.SERVO_IDS, spos, dur, cfg.MOVE_LINEAR)
     if self._verboseLevel > 1:
       print("Joint angles:")
       toLogArray(self._legAngles, digits=0)
       print("Servo angles:")
       toLogArray(self._servoAngles, digits=0)
 
+    # Keep track of timing
+    t_ms = ticks_ms()
+    self.lastMoveLate_ms = t_ms -self.tMoveStart_ms -self.lastMoveDur_ms
+    self.tMoveStart_ms = t_ms
+    self.lastMoveDur_ms = dur
+    self.moveDur_ms = self.nextMoveDur_ms
+    self.state = GGNState.NeedsToCompute
+
+    tdt = ticks_diff(ticks_ms(), t1_ms)
+    if tdt > 13:
+      toLog("_execMove {0} ms".format(tdt), err=ErrCode.TookTooLong)
+
+
+  def _startServoUpdate(self):
+    """ Translate joint angles and prepare servo update
+    """
+    t1_ms = ticks_ms()
+    self._servoAngles = np.array(self._legAngles)
+    self._servoAngles[:,2] = -self._servoAngles[:,2]
+
+    tdt = ticks_diff(ticks_ms(), t1_ms)
+    if tdt > 5:
+      toLog("_startServoUpdate {0} ms".format(tdt), err=ErrCode.TookTooLong)
+
+
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
   #@timed_function
-  @micropython.native
+  #@micropython.native
   def _bodyIK(self, xyzFoot, yRot, iLeg):
     """ Calculates IK of the body
     """
-    cfg = self._Cfg
-    inp = self._Inp
-
+    t1_ms = ticks_ms()
+    '''
+    user.bodyIK(xyzFoot, yRot, offsCox, xyzBRot)
+    xyzFoot : array
+    yRot    : float
+    offsCox : array = self._Cfg.COX_OFF_XYZ[iLeg]
+    xyzBRot : array = self._Inp.xyzBodyRot.val
+    => np.array([x, y, z]
+    '''
     # Calculate total x,z distance between center of body and foot
-    xyzTotal = np.array(cfg.COX_OFF_XYZ[iLeg] +xyzFoot)
+    xyzTotal = self._Cfg.COX_OFF_XYZ[iLeg] +xyzFoot
 
     # Calculate sin and cos for each rotation
-    r_y = np.array([0, yRot, 0])
-    rot = (inp.xyzBodyRot.val +r_y) *math.pi /180
-    sin_xyz = vector.sin(rot)
-    cos_xyz = vector.cos(rot)
+    rot = (self._Inp.xyzBodyRot.val +np.array([0, yRot, 0])) *np.pi /180
+    sin_xyz = np.sin(rot)
+    cos_xyz = np.cos(rot)
 
     # Calculate rotation matrix:
     x = xyzTotal[0] -( xyzTotal[0] *cos_xyz[1] *cos_xyz[2]
@@ -336,16 +356,21 @@ class HexaGaitGenerator(object):
                       +xyzTotal[2] *cos_xyz[1] *cos_xyz[0]
                       -xyzTotal[2] *sin_xyz[1] *sin_xyz[2] *sin_xyz[0]
                       -xyzFoot[1]  *cos_xyz[2] *sin_xyz[0])
+
+    tdt = ticks_diff(ticks_ms(), t1_ms)
+    if tdt > 9:
+      toLog("_bodyIK {0} ms".format(tdt), err=ErrCode.TookTooLong)
     return np.array([x, y, z])
 
-  #@timed_function
-  @micropython.native
+
+  #@micropython.native
   def _legIK(self, xyzFoot, iLeg):
     """ Calculates the angles of coxa, femur and tibia (`self._legAngles`)
         for the given foot position (`xyzFoot`) of leg (`iLeg`); returns
         information about IK solution quality. All intermediate angles are
         in radians.
     """
+    t1_ms = ticks_ms()
     cfg = self._Cfg
     legA = self._legAngles
     cLen = cfg.COX_LEN
@@ -353,38 +378,46 @@ class HexaGaitGenerator(object):
     tLen = cfg.TIB_LEN
     tCor = cfg.TIB_CORR_ANGLE
 
+    '''
     try:
-      # Calculate coxa angle
-      # w/ `IKFootPosXZ` the length between coxa and foot
-      a = xyzFoot[0]
-      b = xyzFoot[2]
-      IKFootPosXZ = math.sqrt(a**2 +b**2)
-      IKCoxaAngle = math.atan2(b, a)
-      legA[iLeg,COX] = math.degrees(IKCoxaAngle) +cfg.COX_OFF_ANG[iLeg]
+    '''
+    # Calculate coxa angle
+    # w/ `IKFootPosXZ` the length between coxa and foot
+    a = xyzFoot[0]
+    b = xyzFoot[2]
+    IKFootPosXZ = math.sqrt(a**2 +b**2)
+    IKCoxaAngle = math.atan2(b, a)
+    legA[iLeg,COX] = math.degrees(IKCoxaAngle) +cfg.COX_OFF_ANG[iLeg]
 
-      # Solving `IKA1`, `IKA2` and `IKSW`
-      # w/ `IKA1` the angle between SW line and the ground in radians
-      #    `IKSW` the distance between femur axis and tars)
-      #    `IKA2` the angle between the line S>W with respect to the femur
-      a = xyzFoot[1]
-      b = IKFootPosXZ -cLen
-      IKSW = math.sqrt(a**2 +b**2)
-      IKA1 = math.atan2(b, a)
-      tmp1 = fLen**2 -tLen**2 +IKSW**2
-      tmp2 = 2*fLen *IKSW
-      IKA2 = math.acos(tmp1/tmp2)
+    # Solving `IKA1`, `IKA2` and `IKSW`
+    # w/ `IKA1` the angle between SW line and the ground in radians
+    #    `IKSW` the distance between femur axis and tars)
+    #    `IKA2` the angle between the line S>W with respect to the femur
+    a = xyzFoot[1]
+    b = IKFootPosXZ -cLen
+    IKSW = math.sqrt(a**2 +b**2)
+    IKA1 = math.atan2(b, a)
+    tmp1 = fLen**2 -tLen**2 +IKSW**2
+    tmp2 = 2*fLen *IKSW
+    IKA2 = math.acos(tmp1/tmp2)
 
-      # Calculate femur angle
-      legA[iLeg,FEM] = -math.degrees(IKA1 +IKA2) +90
+    # Calculate femur angle
+    legA[iLeg,FEM] = -np.degrees(IKA1 +IKA2) +90
 
-      # Calculate tibia angle
-      tmp2 = 2 *fLen *tLen
-      a_rad4 = math.acos(tmp1/tmp2)
-      legA[iLeg,TIB] = (tCor -math.degrees(a_rad4))
+    # Calculate tibia angle
+    tmp2 = 2 *fLen *tLen
+    a_rad4 = math.acos(tmp1/tmp2)
+    legA[iLeg,TIB] = (tCor -math.degrees(a_rad4))
 
+    '''
     except ValueError:
       toLog("Domain error in `_legIK` for leg {0}".format(iLeg),
             err=ErrCode.IKM_Incomplete)
+    '''
+
+    tdt = ticks_diff(ticks_ms(), t1_ms)
+    if tdt > 9:
+      toLog("_legIK {0} ms".format(tdt), err=ErrCode.TookTooLong)
 
     # Return the solution quality
     if IKSW < (fLen +tLen -30):
@@ -404,10 +437,7 @@ class HexaGaitGenerator(object):
     """ Check if all legs are down
     """
     d = abs((self._xyzLegPos -self._Cfg.FEET_INIT_XYZ).flatten())
-    if MICROPYTHON:
-      return numerical.sum(d) == 0
-    else:
-      return np.sum(d) == 0
+    return np.sum(d) == 0
 
   def _is_gait_in_motion(self, zFactor=1):
     """ Returns True if one of the travel lengths are outside the range

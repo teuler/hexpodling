@@ -4,7 +4,7 @@
 # the hexapod client board
 #
 # The MIT License (MIT)
-# Copyright (c) 2020 Thomas Euler
+# Copyright (c) 2020-21 Thomas Euler
 # 2020-09-04, v1
 # ----------------------------------------------------------------------------
 import gc
@@ -24,11 +24,14 @@ if platform.languageID == platform.LNG_MICROPYTHON:
   from robotling_lib.platform.esp32.dio import DigitalOut
   from robotling_lib.platform.esp32.aio import AnalogIn
   import time
+  I2C_SCAN = True
 elif platform.languageID == platform.LNG_CIRCUITPYTHON:
   import board
   from robotling_lib.platform.circuitpython.busio import UART, I2CBus
   from robotling_lib.platform.circuitpython.dio import DigitalOut
   from robotling_lib.platform.circuitpython.aio import AnalogIn
+  import robotling_lib.platform.circuitpython.time as time
+  I2C_SCAN = False
 else:
   print("ERROR: No matching hardware libraries in `platform`.")
 
@@ -41,7 +44,7 @@ class BehaveEngine(RobotlingBase):
   Objects:
   -------
   - onboardLED     : on(), off()
-  - yellowLED      : on(), off()
+  - greenLED       : on(), off()
 
   Methods:
   -------
@@ -73,37 +76,30 @@ class BehaveEngine(RobotlingBase):
     # Initialize some variables
     self._devices = self.Cfg.DEVICES
     self._uartServ = None
-    self._BNO055 = None
     self.Display = None
     self.TRMini = None
 
     # Initialize on-board (feather) hardware
     self.onboardLED = DigitalOut(rb.BLUE_LED, value=False)
-    self.yellowLED = DigitalOut(rb.YELLOW_LED, value=False)
+    self.greenLED = DigitalOut(rb.GREEN_LED, value=False)
     self._adc_battery = AnalogIn(rb.ADC_BAT) if rb.ADC_BAT else None
 
     # Get software I2C bus (#0)
-    """
-    self._I2C = I2CBus(rb.I2C_FRQ, rb.SCL, rb.SDA, code=0)
-    self._nI2CDev = len(self._I2C.deviceAddrList)
-    """
+    #self._I2C = I2CBus(freq=rb.I2C_FRQ, scl=rb.SCL, sda=rb.SDA, scan=I2C_SCAN)
+    self._I2C = I2CBus(freq=800000, scl=rb.SCL, sda=rb.SDA, scan=I2C_SCAN)
+    self._nI2CDev = len(self._I2C.deviceAddrList) if I2C_SCAN else -1
 
     # If a framebuffer display is requested, initialize it now before memory
     # is too fragmented for the framebuffer
-    if "ssd1327_128x128" in self.Cfg.DEVICES and self._nI2CDev > 0:
-      from robotling_lib.driver.ssd1327 import SSD1327_I2C
-      self.Display = SSD1327_I2C(128, 128, self._I2C)
+    if "ssd1327_128x128" in self.Cfg.DEVICES and self._nI2CDev != 0:
+      from robotling_lib.driver.ssd1327_cpy import SSD1327_I2C
+      self.Display = SSD1327_I2C(self._I2C)
+      self.Display.contrast(255)
       self.Display.fill(0)
-      self.Display.set_text_color(15)
+      self.Display.text_color = 3
+      self.Display.bkg_color = 0
       self.Display.println("Hexapod BE v{0}".format(__version__[:3]))
       self.Display.println("Initializing ...")
-
-    # Initialize other devices
-    gc.collect()
-    if "bno055" in self.Cfg.DEVICES and self._nI2CDev > 0:
-      # Connect to bno055
-      from robotling_lib.driver.bno055 import BNO055
-      self._BNO055 = BNO055(self._I2C)
 
     if "tera_evomini" in self.Cfg.DEVICES:
       # Connect to TeraRanger Evo Mini via UART
@@ -123,7 +119,8 @@ class BehaveEngine(RobotlingBase):
     # Serial connection to server
     if "uart_client" in self._devices:
       # Create an UART for a serial connection to the server
-      self._uartServ = UART(rb.UART_CH, baudrate=rb.BAUD, tx=rb.TX, rx=rb.RX)
+      self._uartServ = UART(rb.UART_CH, baudrate=rb.BAUD, tx=rb.TX, rx=rb.RX,
+                            rxbuf=256, timeout=self.Cfg.UART_TIME_OUT_MS)
       assert self._uartServ, "Initializing server UART failed"
       s = "#{0}, tx={1} rx={2}, {3} Bd".format(rb.UART_CH, rb.TX,rb.RX, rb.BAUD)
       toLog(s, sTopic="uart(client)", green=True)
@@ -146,7 +143,7 @@ class BehaveEngine(RobotlingBase):
   def updateRepresentation(self, full=False):
     """ Update the robot's representation object
     """
-    self.HPR.logicBattery_mV[self.HPR.CLI] = int(self.logicBattery_V *1000)
+    self.HPR.logicBattery_mV = int(self.logicBattery_V *1000)
     if full:
       self.HPR.softwareVer[self.HPR.CLI] = self.version_as_int
       self.HPR.memory_kB[self.HPR.CLI] = self.memory
@@ -155,14 +152,12 @@ class BehaveEngine(RobotlingBase):
   def powerDown(self):
     """ Close connections, etc.
     """
-    '''
     if self._uartServ:
       self._uartServ.deinit()
-    if self.TRMini:
-      self.TRMini.deinit()
-    '''
     if self.Display:
       self.Display.deinit()
+    if self._I2C:
+      self._I2C.deinit()
     super().powerDown()
 
   # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -

@@ -14,6 +14,7 @@ from os import environ
 environ['PYGAME_HIDE_SUPPORT_PROMPT'] = '1'
 
 import asyncio
+import array
 import numpy as np
 import pygame
 import modules.joystick as joy
@@ -46,7 +47,7 @@ def parseCmdLn():
 def getCmdFromJoystickInput():
   """ Generate a new command based on the joystick input, if any
   """
-  global isWalkMode, mCmd
+  global isWalkMode, isCalib, bodyYOffsMode, ismCmd
 
   # Initialize hexapod input parameters
   tl_x_z = np.zeros(3)
@@ -57,6 +58,7 @@ def getCmdFromJoystickInput():
   bo_y = None
   bs_y = None
   lh = None
+  params_changed = False
   mCmd.reset()
 
   # Button `A` switches between walk mode and body mode
@@ -65,7 +67,36 @@ def getCmdFromJoystickInput():
     isWalkMode = not isWalkMode
     print("`A` -> {0} mode".format("Walk" if isWalkMode else "Body"))
 
-  # Button `Y` request the status
+  # Button `B` prints help
+  bB = JS.BtnB.pressed
+  if bB is not None and bB:
+    print("`Start`            - Switched GGN on or off")
+    print("`A`                - Switches between walk mode and body mode")
+    print("`B`                - Prints this help screen")
+    print("`X`                - Switches between changing `legLiftHeight` and `bodyYOffs`")
+    print("`Y`                - Status requested")
+    print("`Hat, L/R`         - -/+ `delaySpeed_ms`")
+    print("`Hat, U/D`         - -/+ `legLiftHeight` or `bodyYOffs`")
+    print("`Left stick,  L/R` - Move or walk sideways")
+    print("`Left stick,  U/D` - Move or walk forward/backward")
+    print("`Right stick, L/R` - Turn or tilt body left/right")
+    print("`Right stick, U/D` - Nothing or tilt body forward/backward")
+
+  bSL = JS.BtnStickR.pressed
+  if bSL is not None and bSL:
+    isCalib = not isCalib
+    print("`Back` -> {0} calibration".format("Start" if isCalib else "End"))
+    mCmd.token = rmsg.TOK_CAL
+    mCmd.add_data("S", array.array("h", [int(isCalib)]))
+    return mCmd
+
+  # Button `X` switches between changing `legLiftHeight` and `bodyYOffs`
+  bX = JS.BtnX.pressed
+  if bX is not None and bX:
+    bodyYOffsMode = not bodyYOffsMode
+    print("`X` -> {0} can be set".format("bodyYOffs" if bodyYOffsMode else "legLiftHeight"))
+
+  # Button `Y` requests the status
   bY = JS.BtnY.pressed
   if bY is not None and bY:
     mCmd.token = rmsg.TOK_STA
@@ -77,19 +108,29 @@ def getCmdFromJoystickInput():
   if bStart is not None and bStart:
     Inp.isOn = not Inp.isOn
     mCmd.token = rmsg.TOK_GG0
-    mCmd.add_data("M", [int(Inp.isOn), 2])
-    mCmd.add_data("G", [0])
+    mCmd.add_data("M", array.array("h", [int(Inp.isOn), 2]))
+    mCmd.add_data("G", array.array("h", [0]))
     return mCmd
 
-  # The left hat controls the speed and leg lift
+  # The left hat controls speed and leg offset
   hatL = JS.HatL.value
   if hatL is not None:
     ds = Inp.delaySpeed_ms.val
-    ds += hatL[1] *10
+    ds += hatL[0] *10
     Inp.delaySpeed_ms.val = ds
-    lh = Inp.legLiftHeight.val
-    lh += hatL[0] *5
-    Inp.legLiftHeight.val = lh
+    if bodyYOffsMode:
+      bo = Inp.bodyYOffs.val
+      bo += hatL[1] *5
+      params_changed = Inp.bodyYOffs.val != bo
+      Inp.bodyYOffs.val = bo
+      s = "bodyYOffs={0}".format(bo)
+    else:
+      lh = Inp.legLiftHeight.val
+      lh += hatL[1] *5
+      params_changed = Inp.legLiftHeight.val != lh
+      Inp.legLiftHeight.val = lh
+      s = "legLiftHeight={0}".format(lh)
+    print("{0}, delaySpeed_ms={1}".format(s, ds))
 
   if isWalkMode:
     # Control walking ...
@@ -97,10 +138,10 @@ def getCmdFromJoystickInput():
     # <STA ...;
     xyL = JS.StickL.xy
     xyR = JS.StickR.xy
-    if xyL is not None or xyR is not None:
+    if xyL is not None or xyR is not None or params_changed:
       # Joystick input has changed
       if xyL is not None:
-        tl_x_z[0] = xyL[0] *Cfg.TRAVEL_X_Z_LIM[0]
+        tl_x_z[0] = -xyL[0] *Cfg.TRAVEL_X_Z_LIM[0]
         tl_x_z[2] = xyL[1] *Cfg.TRAVEL_X_Z_LIM[2]
       if xyR is not None:
         tr_y = xyR[0] *Cfg.TRAVEL_ROT_Y_LIM
@@ -113,9 +154,9 @@ def getCmdFromJoystickInput():
       temp.append(int(Inp.x_zTravelLen.x))
       temp.append(int(Inp.x_zTravelLen.z))
       temp.append(int(-Inp.travelRotY.val))
-      mCmd.add_data("T", temp)
-      mCmd.add_data("D", [int(Inp.delaySpeed_ms.val)])
-      mCmd.add_data("A", [-1])
+      mCmd.add_data("T", array.array("h", temp))
+      mCmd.add_data("D", array.array("h", [int(Inp.delaySpeed_ms.val)]))
+      mCmd.add_data("A", array.array("h", [-1]))
       return mCmd
 
   else:
@@ -123,7 +164,7 @@ def getCmdFromJoystickInput():
     # >GGP B=bs,px,pz,bx,by,bz T=bo,lh,tx,tz,ty;
     xyL = JS.StickL.xy
     xyR = JS.StickR.xy
-    if xyL is not None or xyR is not None:
+    if xyL is not None or xyR is not None or params_changed:
       # Joystick input has changed
       if xyL is not None:
         bp_x_z[0] = xyL[0] *Cfg.BODY_X_Z_POS_LIM[0]
@@ -140,14 +181,14 @@ def getCmdFromJoystickInput():
       temp.append(int(Inp.xyzBodyRot.x))
       temp.append(int(Inp.xyzBodyRot.y))
       temp.append(int(Inp.xyzBodyRot.z))
-      mCmd.add_data("B", temp)
+      mCmd.add_data("B", array.array("h", temp))
       temp = []
       temp.append(int(Inp.bodyYOffs.val))
       temp.append(int(Inp.legLiftHeight.val))
       temp.append(int(Inp.x_zTravelLen.x))
       temp.append(int(Inp.x_zTravelLen.z))
       temp.append(int(Inp.travelRotY.val))
-      mCmd.add_data("T", temp)
+      mCmd.add_data("T", array.array("h", temp))
       return mCmd
   return mCmd
 
@@ -156,14 +197,14 @@ def uart_data_received(sender, data):
   print("RX> {0}".format(data))
 
 # ---------------------------------------------------------------------
-async def run(address, loop):
+async def run(address):
   """ Run the loop
   """
-  global mCmd, isReady
+  global mCmd, mRpl, isReady
 
   try:
     # Try connecting to robot via BLE
-    async with BleakClient(address, loop=loop) as client:
+    async with BleakClient(address) as client:
       res = await client.is_connected()
       print("Connected to {0}".format(address))
 
@@ -185,16 +226,18 @@ async def run(address, loop):
           mCmd = getCmdFromJoystickInput()
           if mCmd.token is not rmsg.TOK_NONE:
             # Send new command
-            sCmd = mCmd.to_string()
-            print("-> ", sCmd)
-            await client.write_gatt_char(_UART_TX, (sCmd +"\n").encode())
+            sCmd = mCmd.to_hex_string()
+            print("-> ", mCmd)
+            repl = ""
+            await client.write_gatt_char(_UART_TX, (sCmd).encode())
             repl = await client.read_gatt_char(_UART_RX)
             if len(repl) > 0:
-              print("<- ", repl)
+              mRpl.from_hex_string(repl[1:-1])
+              print("<- ", mRpl)
 
         # Keep events running
-        Clock.tick(15)
-        await asyncio.sleep(0.010, loop=loop)
+        Clock.tick(5)
+        await asyncio.sleep(0.010)
 
       await client.stop_notify(_UART_RX)
       print("ERROR: Connection lost")
@@ -216,7 +259,10 @@ if __name__ == '__main__':
   Cfg.MAX_BLEND_STEPS = 0
   Inp = HexaInput(Gait, Cfg)
   isWalkMode = False
+  isCalib = False
+  bodyYOffsMode = True
   mCmd = rmsg.RMsg()
+  mRpl = rmsg.RMsg()
 
   '''
   # Check for command line parameter(s)
@@ -234,8 +280,11 @@ if __name__ == '__main__':
     exit()
 
   # Run loop
-  loop = asyncio.get_event_loop()
-  loop.run_until_complete(run(HEXAPOD_BLE_ADDRESS, loop))
+  try:
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(run(HEXAPOD_BLE_ADDRESS))
+  except TimeoutError:
+    print("ERROR: Connection lost")
 
   # Disconnect
   print("... done.")
