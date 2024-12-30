@@ -7,7 +7,7 @@ This folder contains the current MMBasic code:
 - `lib_mcp3208.bas` - "Driver" for the MCP3208 chip, an 8-channel 12-bit A/D converter with SPI interface
 - `lib_tools.bas` - A collection of tools in form of a library
 
-### Server
+## Server
 To upload the software to the server Pico:
 1. Install the [PicoMite firmware](https://geoffg.net/Downloads/picomite/PicoMite_Firmware.zip) (V6.00.01, `PicoMiteRP2040V6.00.01.uf2` or the RP2350 variant)
 2. Load programs onto the internal drive:
@@ -37,7 +37,7 @@ To upload the software to the server Pico:
    ```
 5. Now load the main program `hps_srv.bas` and run it.
      
-### Client
+## Client
 To upload the software to the client Pico:
 1. Install the [PicoMite firmware](https://geoffg.net/Downloads/picomite/PicoMite_Firmware.zip) (V6.00.01, `PicoMiteRP2040USBV6.00.01.uf2` or the RP2350 variant). The USB variant is needed to allow the robot to be controlled by a USB-gamepad.
 
