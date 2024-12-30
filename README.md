@@ -8,9 +8,8 @@ The main differences between the original and the version described here are:
 * Programmed in [PicoMite MMBasic](https://geoffg.net/picomite.html) by Peter Mather and Geoff Graham
 * Supports current sensing (load) for up to 8 servos, e.g. to detect if the robot is stuck
 
+Here is a [video](https://youtu.be/h_NlpfQ0yDU?si=2IDnd0aLCBPWmuDh) demonstrating its movements (remote-controlled).
 Please find the details, see [Wiki](https://github.com/teuler/hexpodling/wiki).
-
-_Note that there was an earlier version that used ESP32 microcontrollers ([TinyPICO](https://www.tinypico.com/)) and MicroPython. I switched to MMBasic because I liked the idea of a BASIC controlled robot, plus I was not happy with the performance of MicroPython for the leg control._
 
 ### Release Notes
 
