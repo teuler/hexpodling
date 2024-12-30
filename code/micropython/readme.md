@@ -1,4 +1,4 @@
-This folder contains python code that runs on a PC, e.g. to communicate with a hexbotling:
+The code in this folder is __depreciated__. It contains python code that runs on a PC, e.g. to communicate with a hexbotling:
 
 - `hexapod_remote_ble.py` - Allows remote controlling the robot using a standard USB/wireless game controller. It translates the game controller actions into 
    walk/movement commands and sends them via a Bluetooth (BLE) link to the TinyPICO ESP32 on the robot. This program requires the Python packages 
