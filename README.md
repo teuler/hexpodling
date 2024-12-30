@@ -4,7 +4,7 @@
 
 The main differences between the original and the version described here are:
 * The legs contain an additional segment, hence 3DOF
-* Based on [Raspberry Pi Pico microcontrollers](https://www.raspberrypi.com/products/raspberry-pi-pico/) instead of the original's Arduino Nano, with one Pico controlling the movements (server) and one for the "higher" functions (client). Currently, the client is remote-controlled by a gamepad to test movements. In the future, it can run the robot autonomously. 
+* Based on [Raspberry Pi Pico microcontrollers](https://www.raspberrypi.com/products/raspberry-pi-pico/) instead of the original's Arduino Nano, with one Pico controlling the movements (server) and one for the "higher" functions (client)
 * Programmed in [PicoMite MMBasic](https://geoffg.net/picomite.html) by Peter Mather and Geoff Graham
 * Supports current sensing (load) for up to 8 servos, e.g. to detect if the robot is stuck
 
