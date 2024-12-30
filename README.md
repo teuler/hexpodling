@@ -1,5 +1,5 @@
 # hexpodling
-
+[<img align="right" src="https://github.com/teuler/hexpodling/blob/master/pictures/IMG_1177.jpg" alt="Drawing" width="400"/>](https://github.com/teuler/hexpodling/blob/master/pictures/IMG_1177.jpg)
 "hexpodling" is a work-in-progress, 3-degrees of freedom (3DOF) hexapod robot based on the [Vorpal](https://vorpalrobotics.com/wiki/index.php/Vorpal_The_Hexapod) from Vorpal Robotics. The original Vorpal is remote-controlled and 2DOF; it is aimed at teaching in schools. 
 
 The main differences between the original and the version described here are:
