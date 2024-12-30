@@ -9,7 +9,7 @@ The main differences between the original and the version described here are:
 * Supports current sensing (load) for up to 8 servos, e.g. to detect if the robot is stuck
 
 Here is a [video](https://youtu.be/h_NlpfQ0yDU?si=2IDnd0aLCBPWmuDh) demonstrating its movements (remote-controlled).  
-Please find the details, see [Wiki](https://github.com/teuler/hexpodling/wiki).
+For the details, see [Wiki](https://github.com/teuler/hexpodling/wiki).
 
 ### Release Notes
 
