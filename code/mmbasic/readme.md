@@ -16,6 +16,7 @@ To upload the software to the server Pico:
    xmodem r "lib_bno055.bas"
    xmodem r "lib_mcp3208.bas"
    xmodem r "lib_tools.bas"
+   xmodem r "hps_calibrate.bas"
    ```
 3. Install libraries:
    ```
