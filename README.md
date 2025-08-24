@@ -13,8 +13,10 @@ For the details, see [Wiki](https://github.com/teuler/hexpodling/wiki).
 
 ### Release Notes
 
+* 2025-08-24
+  * Sensor head with camera (ESP32-cam) and time-of-flight distance sensor added (see [new wiki page](https://github.com/teuler/hexpodling/wiki/Camera-and-ToF-sensor)
 * 2025-01-01 - After a long pause
-  * Switch to MMBasic
+  * Switched to MMBasic :-)
   * New client board featuring two Pico RP2040 microcontrollers
   * Remote control (to test movements) direcly w/ a wireless XBox controller
 * 2020-12-27 - Updates - Still work in progress
