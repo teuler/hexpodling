@@ -1,11 +1,11 @@
-' hexapod-server v0.1.25
+' hexapod-server v0.2.04
 ' ----------------------
 ' Makes the robot move and walk, monitors servo load, servo and logic battery,
 ' and reads the compass heading, In addition, it controls two RGB LEDs for
 ' feedback and a buzzer. Is controlled via a serial connection by the client
 ' (`hps_cli.bas`).
 '
-' Copyright (c) 2023-24 Thomas Euler
+' Copyright (c) 2023-25 Thomas Euler
 ' MIT Licence
 '
 ' v0.1.13 (2024-01-13)
@@ -25,6 +25,21 @@
 ' - Some cleaning up old code
 ' v0.1.25 (2024-11-23)
 ' - Testing servo load functions
+' v0.2.00 (2025-01-01)
+' - Fix a bug initializing MCP3208 library
+' - Added the option to use I2C for server-client communication, to free one
+'   hardware UART (e.g., for the TOF sensor)
+' v0.2.01 (2025-02-01)
+' - Fixing bugs in `lib_mcp3208.bas`
+' v0.2.03 (2025-06-14)
+' - New hexpod board (v3.0)
+' - Some timing information added to report
+' - Maestro-related subroutines in library
+' - Calibration routine(s) for servo load; data saved in a .dat file;
+'   load data scaling and handling cleaned up
+' - Display key data at the top of the terminal window
+' v0.2.04 (2025-08-03)
+' - Remove server-client via COM
 '
 ' Options:
 '   OPTION COLORCODE ON
@@ -39,7 +54,9 @@
 '
 ' Hardware (Server):
 ' - COM2 (tx=GP4, rx=GP5) as device #5 -> Maestro18 servo controller
-' - COM1 (tx=GP0, rx=GP1) as device #2 -> To connect to client
+' - Client-server:
+'   (a) COM1 (tx=GP0, rx=GP1) as device #2 -> To connect to client
+'   (b) I2C (sda=GP0, scl=GP1) as device &H42, with server being the master
 ' - Buzzer @ GP6
 ' - Yellow onboard LED @ GP2
 ' - Servo battery voltage @ GP28 (ADC2)
@@ -51,6 +68,7 @@
 ' Required libraries:
 ' - `lib.bno055.bas`
 ' - `lib_mcp3208.bas`
+' - `lib_maestro.bas`
 '
 ' ---------------------------------------------------------------------------
 Option Base 0
@@ -59,17 +77,29 @@ Option Escape
 Option Default Float
 Option Heartbeat Off
 
+Sub MM.Startup
+  Print "`" +MM.Info(Platform) +"` running on " +MM.DEVICE$;
+  Print "MMBasic v" +Str$(MM.Info(Version))
+End Sub
+
 ' ---------------------------------------------------------------------------
 ' Initialization of global definitions
 GoTo Start
 Main:
   ' Debug options:
   ' (DEB_SRV, DEB_VERB, DEB_GAIT, DEB_INP, DEB_IK, DEB_COM)
-  DEBUG = DEB_IK
+  DEBUG = 0
 
+  ' Configuration
+  Dim integer USE_TERMINAL = 0
+  Dim integer CALIB_LOAD   = 0
+
+  ' Control variables
   Dim string key$
-  Dim i
-  Dim t, t_loop, t_state, t_load = Timer
+  Dim integer i, j
+  Dim float t, t_loop, t_state, t_term, t_load = Timer
+  Dim float dt_load_ms = Choice(CALIB_LOAD, 50, 200)
+  Dim float v
 
   ' Initialize
   R.Init
@@ -95,29 +125,26 @@ Main:
     ' Update sensors ...
     BNO055.getEuler IMU()
 
-    If t_load +1000 < t_loop Then
-      t = Timer
+
+    If t_load +dt_load_ms < t_loop Then
+      ' Read load data from MCP3208 and scale it to the range of 0..240
+      ' using the defined percentiles
       MCP3208.readADCChans SRV_N_LOAD_CH, srv.loadRaw()
-      Math C_Sub srv.loadRaw(), srv.loadMin(), srv.load()
-      Math C_Div srv.load(), srv.loadMax(), srv.load()
-      Math Scale srv.load(), 100, srv.load()
-      t = Timer -t
-      'Print "dt="+Str$(t, 5, 3)+" ";
-      'For i=0 To SRV_N_LOAD_CH-1
-      '  'Print Format$(srv.load(i), "% 4.0f")+" ";
-      '  Print srv.loadRaw(i)," ";
-      'Next
-      'Print
+      For i=0 To SRV_N_LOAD_CH-1
+        v = (srv.loadRaw(i) -srv.loadMin(i)) /srv.loadRng(i) *150 +50
+        srv.load(i) = Min(Max(v, 0), 240)
+      Next
+
+      ' Run calibration, if requested and servos are running
+      If CALIB_LOAD And R.running = 2 Then R.doLoadCalib 500
       t_load = Timer
     EndIf
 
 
-    ' If connected to client, handle communication via serial link
+    ' If connected to client, handle communication
     If R.connected Then
-      ' Send status to client
-      If t_state +250 < t_loop Then COM.sendState : t_state = Timer : EndIf
-
-      ' Check for client command and handle it ...
+      ' Check for client command and handle it, if available ...
+      ' (`handleMsg` will also deal with status requests)
       COM.handleMsg
       If DEBUG And DEB_COM Then
         If com.in_res > 0 Then
@@ -137,6 +164,12 @@ Main:
       If LCase$(key$) = "c" Then R.doServoCalib
     EndIf
 
+    ' Update information in terminal window, if requested
+    If USE_TERMINAL And t_term +200 < t_loop Then
+      Terminal.update
+      t_term = Timer
+    EndIf
+
     R._timing t_loop
   Loop
 
@@ -145,6 +178,76 @@ Main:
   R.Shutdown
   End
 
+
+' ---------------------------------------------------------------------------
+Sub _printLn y%, txt$(), state%(), empty%
+  ' Print a line at y% in the terminal window, using the text fields
+  ' in txt$() and color by state()
+  ' (4 fields with 18 characters each)
+  Static integer first = 1
+  Static string VT$(5) length 14
+  If empty% Then Print @(0, y% *12) Space$(80) : Exit Sub : EndIf
+  If first Then
+    VT$(0) = Chr$(27) +"[m"                     ' Normal
+    VT$(1) = Chr$(27) +"[42m" +Chr$(27) +"[97m" ' Ok
+    VT$(2) = Chr$(27) +"[43m" +Chr$(27) +"[30m" ' Warning
+    VT$(3) = Chr$(27) +"[41m" +Chr$(27) +"[30m" ' Danger
+    VT$(4) = Chr$(27) +"[37m"                   ' Disabled
+    VT$(5) = Chr$(27) +"[100m"+Chr$(27) +"[97m" ' Active
+    first = 0
+  EndIf
+  Local string s$ = VT$(0)
+  Local integer i, n
+  For i=0 To 3
+    n = 18 -Len(txt$(i))
+    Cat s$, VT$(state%(i)) +"|" +txt$(i) +Space$(n) +VT$(0) +" "
+  Next
+  Print @(0, y% *12) +s$ +VT$(0) +"|"
+End Sub
+
+
+Sub Terminal.update
+  ' Prints key data on the robot's state into the terminal (GUI-like)
+  Local string tx$(3) length 18
+  Local integer sta(3), i, j
+  Local float v
+
+  sta(0) = 4
+  tx$(0) = ""
+  sta(1) = 4
+  tx$(1) = ""
+  sta(2) = Choice(R.connected, 5, 4)
+  tx$(2) = Choice(R.connected, "Connected", "Disconnected")
+  sta(3) = 5
+  tx$(3) = "GGN `" +Field$(GGN_STATE$, ggn.state +1) +"`"
+  _printLn 0, tx$(), sta()
+
+  ' Battery, IMU etc.
+  v = R.servoBattery_V()
+  sta(0) = Choice(v < 7.5, Choice(v < 7.0, 3, 2), 1)
+  tx$(0) = "Batt/Servo = " +Str$(v, 1, 1)+"V"
+  v = R.logicBattery_V()
+  sta(1) = Choice(v < 3.7, Choice(v < 3.6, 3, 2), 1)
+  tx$(1) = "Batt/Logic = " +Str$(v, 1, 1)+"V"
+  sta(2) = 4
+  tx$(2) = ""
+  sta(3) = 5
+  tx$(3) = "IMU h" +Str$(IMU(0),3,0) +" p" +Str$(IMU(1),3,0)
+  Cat tx$(3), " r" +Str$(IMU(2),3,0)
+  _printLn 1, tx$(), sta()
+
+  ' Servo load
+  For i=0 To SRV_N_LOAD_CH-1
+    v = srv.load(i)
+    j = Min(Max(Int(v /10), 0), 10)
+    sta(i) = Choice(v < 30, 2, Choice(v >= 200, 3, 1))
+    tx$(i) = Str$(v,4,0) +String$(j, "#")
+  Next
+  _printLn 2, tx$(), sta()
+
+  _printLn 3, tx$(), sta(), 1
+End Sub
+
 ' ===========================================================================
 ' Start of robot's definitions
 ' ---------------------------------------------------------------------------
@@ -152,8 +255,10 @@ Start:
   ' Set data read pointer here
   StartR: Restore StartR
 
-  Const R.VERSION$       = "0.1.25"
+  Const R.VERSION$       = "0.2.04"
   Const R.NAME$          = "hexapod|server"
+  Const R.CHIP$          = Right$(MM.Info(Device), 7)
+  Option Platform R.Name$
 
   ' - - - - - - - - - - - - - - - - - - - - - - - -  - - - - - - - - - - - -
   ' GLOBAL DEFINITIONS
@@ -167,6 +272,19 @@ Start:
  'Const DEB_SLNT         = &H80
   Dim integer DEBUG      = 0
 
+  ' VT100 color codes
+  /*
+  Dim VT_WHITE$ Length 7 = Chr$(27) +"[m"
+  Dim VT_GREEN$ Length 7 = Chr$(27) +"[92m"
+  Dim VT_AMBER$ Length 7 = Chr$(27) +"[93m"
+  Dim VT_RED$   Length 7 = Chr$(27) +"[91m"
+  Dim VT_LILAC$ Length 7 = Chr$(27) +"[95m"
+  Dim VT_BLUE$  Length 7 = Chr$(27) +"[94m"
+  Dim VT_CYAN$  Length 7 = Chr$(27) +"[96m"
+  Dim VT_GRAY$  Length 7 = Chr$(27) +"[37m"
+  Dim VT_BBLUE$ Length 7 = Chr$(27) +"[134m"
+  Dim VT_BBLCK$ Length 7 = Chr$(27) +"[100m"
+  */
   ' Gait generator (GGN) states
   Const GGN_IDLE         = 0
   Const GGN_COMPUTE      = 1
@@ -210,8 +328,9 @@ Start:
   R._calcLegPos BODY_COX_ANG, BODY_R, COX_OFF_XYZ()
 
   ' Movement-related definitions
+
   ' ----------------------------
-  ' Limits within movements are considered finished
+  ' Limits within movements are considered3 finished
   Const TRAVEL_DEAD_Z    = 2
  'Const TURN_DEAD_Z      = 5
   Const LEGS_DOWN_DEAD_Z = 10      ' TODO
@@ -277,6 +396,9 @@ Start:
   Const COM_DATA_OFFS    = 14
   Const COM_N_BYTEVAL    = 16   ' number of single-byte values
   Const COM_MSG_LEN      = 24   ' total length in bytes
+  Const COM_I2C_ADDR     = &H42 ' Server address if I2C is used
+  Const COM_I2C_SPEED    = 400
+  Const COM_I2C_TOUT     = 200  ' ms
 
   Const CMD_BODY         = 1    ' Commands/message types
   Const CMD_MOVE         = 2
@@ -295,6 +417,10 @@ Start:
   Dim integer com.isReady = 0, com.in_res = 0, com.in_t_ms
   Dim integer com.in(COM_N_BYTEVAL -1)
 
+  Dim integer com.i2cRecv = 0   ' I2C client only
+  Dim string com.i2cBuf$
+  'Dim integer com.i2cBuf(COM_MSG_LEN -1)
+
   ' - - - - - - - - - - - - - - - - - - - - - - - -  - - - - - - - - - - - -
   ' SERVER-SPECIFIC DEFINITIONS
   ' - - - - - - - - - - - - - - - - - - - - - - - -  - - - - - - - - - - - -
@@ -308,28 +434,36 @@ Start:
  'Const SRV_ACCEL        = 0       ' 0=fastest, 1=low ... high
   Const SRV_N_STEPS      = 10      ' 80
   Const SRV_N_LOAD_CH    = 4       ' max. load (MCP3208) channel
+  Const SRV_LOAD_LO_PERC = 10      ' low percentile
+  Const SRV_LOAD_HI_PERC = 90      ' high percentile
 
   ' Pico pins
-  Const PIN_SCL          = MM.Info(PinNo GP19)
-  Const PIN_SDA          = MM.Info(PinNo GP18)
+  Const PIN_SCL          = MM.Info(PinNo GP19) ' I2C2
+  Const PIN_SDA          = MM.Info(PinNo GP18) ' |
   Const PIN_LED          = MM.Info(PinNo GP2)
   Const PIN_BUZZER       = MM.Info(PinNo GP6)
-  Const PIN_SRV_TX       = MM.Info(PinNo GP4)
-  Const PIN_SRV_RX       = MM.Info(PinNo GP5)
-  Const PIN_AIN_SRV_BAT  = MM.Info(PinNo GP28) ' ADC2
-  Const PIN_AIN_LGC_BAT  = MM.Info(PinNo GP27) ' ADC1
-  Const PIN_SPI2_RX      = MM.Info(PinNo GP12)
-  Const PIN_SPI2_TX      = MM.Info(PinNo GP11)
-  Const PIN_SPI2_CLK     = MM.Info(PinNo GP10)
-  Const PIN_MCP3208_CS   = MM.Info(PinNo GP13)
+  Const PIN_SRV_TX       = MM.Info(PinNo GP4)  ' COM2/UART1 (Servos)
+  Const PIN_SRV_RX       = MM.Info(PinNo GP5)  ' |
+  If R.CHIP$ = "RP2350B" Then
+    Const PIN_AIN_SRV_BAT= MM.Info(PinNo GP42) ' ADC2
+    Const PIN_AIN_LGC_BAT= MM.Info(PinNo GP41) ' ADC1
+  Else
+    Const PIN_AIN_SRV_BAT= MM.Info(PinNo GP28) ' ADC2
+    Const PIN_AIN_LGC_BAT= MM.Info(PinNo GP27) ' ADC1
+  EndIf
+  Const PIN_SPI2_RX      = MM.Info(PinNo GP12) ' MCP3208
+  Const PIN_SPI2_TX      = MM.Info(PinNo GP11) ' |
+  Const PIN_SPI2_CLK     = MM.Info(PinNo GP10) ' |
+  Const PIN_MCP3208_CS   = MM.Info(PinNo GP13) ' |
   Const PIN_WS2812       = MM.Info(PinNo GP3)
-  Const PIN_HS_IN        = MM.Info(PinNo GP7)
-  Const PIN_HS_OUT       = MM.Info(PinNo GP8)
+  Const PIN_HS_IN        = MM.Info(PinNo GP7)  ' Handshake
+  Const PIN_HS_OUT       = MM.Info(PinNo GP8)  ' |
 
   ' RGB LEDs
   Const N_WS2812         = 2
   Const RGB_I_PULSE      = 0
-  Const RGB_N_STEP       = 80
+  Const RGB_N_STEP       = 200
+  Const RGB_PULSE_INT    = 20
 
   ' Status
   ' (0=shutdown, 1=idle, 2=running)
@@ -347,8 +481,8 @@ Sub R.Init
   Local integer j
   Local float af, at, ac
   InitR: Restore InitR
-  Print "\r\n"+R.NAME$+" v"+R.VERSION$
-  Print "| running on "+MM.Device$+" MMBasic v"+Str$(MM.Ver)
+  Print "\n" +R.NAME$+" v"+R.VERSION$
+  Print "| running on "+MM.DEVICE$+" MMBasic v"+Str$(MM.Info(VERSION))
   Print "Initializing onboard hardware ..."
   Print "| CPU @ "+Str$(Val(MM.Info(CPUSPEED))/1E6)+" MHz"
 
@@ -377,7 +511,7 @@ Sub R.Init
   BNO055.init PIN_SDA, PIN_SCL
 
   ' Init MCP3208 for load sensing
-  MCP3208.init PIN_SPI2_RX, PIN_SPI2_TX, PIN_SPI2_CLK
+  MCP3208.init PIN_SPI2_RX, PIN_SPI2_TX, PIN_SPI2_CLK, PIN_MCP3208_CS
 
   ' ADCs for battery voltages
   Print "Battery status:"
@@ -393,9 +527,11 @@ Sub R.Init
   SetPin PIN_SRV_RX, PIN_SRV_TX, COM2
   Open SRV_PORT$ As #5
   Pause 200
-  j = R.getServoErr()
+  If R.getServoErr() < 0 Then
+    Print "| Error: No reply"
+  EndIf
 
-  ' Open COM port to client
+  ' Connect to client
   COM.open
 
   ' Leg servos
@@ -470,12 +606,31 @@ Sub R.Init
 
   ' Servo load-related
   Print "Reading servo load calibration data ..."
-  Dim srv.loadRaw(SRV_N_LOAD_CH-1), srv.load(SRV_N_LOAD_CH-1)
-  Dim srv.loadMin(SRV_N_LOAD_CH-1), srv.loadMax(SRV_N_LOAD_CH-1)
-  Data  30,   35, 235, 297
-  Read srv.loadMin()
-  Data 696, 1131, 799, 850
-  Read srv.loadMax()
+  Dim string cfg.loadFName$ = "cal_load.dat" length 13
+  Dim integer srv.loadRaw(SRV_N_LOAD_CH-1)
+  Dim float srv.load(SRV_N_LOAD_CH-1)
+  Dim float srv.loadMin(SRV_N_LOAD_CH-1), srv.loadMax(SRV_N_LOAD_CH-1)
+  Dim float srv.loadRng(SRV_N_LOAD_CH-1)
+  If MM.Info(exists file cfg.loadFName$) Then
+    ' Read calibration data from file
+    Open cfg.loadFName$ For input As #10
+    Local string a$
+    For j=0 To SRV_N_LOAD_CH-1
+      Line Input #10, a$
+      srv.loadMin(j) = Val(Field$(a$, 1, ","))
+      srv.loadMax(j) = Val(Field$(a$, 2, ","))
+    Next
+    Close #10
+    Print "|Successfully read from file"
+  Else
+    ' Set default values
+    Array Set 50, srv.loadMin()
+    Array Set 400, srv.loadMax()
+    Print "|No file found, using default values"
+  EndIf
+  Math C_SUB srv.loadMax(), srv.loadMin(), srv.loadRng()
+  Math V_print srv.loadMin()
+  Math V_print srv.loadMax()
 
   ' Variables for smooth servo movements (all in [ms]):
   Dim float srv.pCurr(SRV_N-1)
@@ -485,13 +640,14 @@ Sub R.Init
   Math Set SRV_N_STEPS, srv.nStep()
 
   ' Set servo speed and acceleration at the Maestro level
- 'Print "| Setting servo speed to "+Str$(SRV_SPEED)+" and ";
- 'Print "acceleration limit to "+Str$(SRV_ACCEL)+" (0=maximum)"
- 'For j=0 To SRV_N-1
- '  R.setServoSpeed j, SRV_SPEED
- '  R.setServoAccel j, SRV_ACCEL
- 'Next j
-
+  /*
+  Print "| Setting servo speed to "+Str$(SRV_SPEED)+" and ";
+  Print "acceleration limit to "+Str$(SRV_ACCEL)+" (0=maximum)"
+  For j=0 To SRV_N-1
+    R.setServoSpeed j, SRV_SPEED
+    R.setServoAccel j, SRV_ACCEL
+  Next j
+  */
   ' Posture data
   ' `state(postureID, step, i0, nSteps, last_t_ms)`
   Dim pst.state(3) = (-1, 0,0, 0)
@@ -516,7 +672,8 @@ Sub R.Init
   Data   50,   0,    0,    0,    0, 48,    0,    0,    0,    0,    0, 160
   Read pst.data()
 
-  If DEBUG And DEB_VERB Then R.logServoCalibVals
+  R.logServoCalibVals
+  R.logLoadCalibVals
   Print "Ready."
 End Sub
 
@@ -610,14 +767,25 @@ Sub R._timing t_start, _rep
     first = 0
   EndIf
   If _rep = 0 Then
+    ' Log timing
     dt_ms(p) = Timer -t_start
     Inc p, 1 : If p >= 500 Then p = 0
     Inc n, 1
   Else
+    ' Report timing
     Local m = Math(Mean dt_ms()), sd = Math(SD dt_ms())
-    Print "Loop "+Str$(m,0,3)+" "+Chr$(177)+" "+Str$(sd,0,3)+" ms (";
-    Print "n="+Str$(n)+", ";
-    Print Str$(Math(Min dt_ms()),0,3)+".."+Str$(Math(Max dt_ms()),0,3)+")"
+    Local r0 = Math(Min dt_ms()), r1 = Math(Max dt_ms())
+    _print_timing "Loop", m, sd, n, r0, r1, "ms"
+    If ggn.nExec > 0 Then
+      m = ggn.dtExec(0) /ggn.nExec
+      r0 = ggn.dtExec(1) : r1 = ggn.dtExec(2)
+      _print_timing "Exec", m, 0, ggn.nExec, r0, r1, "ms"
+    EndIf
+    If ggn.nMove > 0 Then
+      m = ggn.dtMove(0) /ggn.nMove
+      r0 = ggn.dtMove(1) : r1 = ggn.dtMove(2)
+      _print_timing "Move", m, 0, ggn.nMove, r0, r1, "ms"
+    EndIf
   EndIf
 End Sub
 
@@ -675,6 +843,80 @@ Sub R.logServoCalibVals
   Next j
 End Sub
 
+' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Sub R.doLoadCalib nMax
+  ' Record servo load to determine range and minimum (SRV_LO_PTILE)
+  ' and maximum (SRV_HI_PTILE)
+  Static integer iStep = 0, nVals
+  Static float vals(SRV_N_LOAD_CH -1, nMax -1)
+  Local integer j
+  If iStep = 2 Then Exit Sub
+  If iStep = 0 Then
+    Array Set 0, vals()
+    nVals = 0
+    iStep = 1
+    Print "Starting load calibration ..."
+  EndIf
+  If nVals < nMax Then
+    ' Collect data
+    For j=0 To SRV_N_LOAD_CH -1
+      vals(j, nVals) = srv.loadRaw(j)
+    Next
+    Inc nVals, 1
+  Else
+    ' Analyse data ...
+    Print "|" +Str$(nVals) +" values collected"
+    Local float tmp(nMax -1), _min, _max
+    Local integer n0, n1
+
+    For j=0 To SRV_N_LOAD_CH -1
+      ' Retrieve channel #j data, determine some statistics
+      Array Slice vals(), j,, tmp()
+      _min = Math(Min tmp())
+      _max = Math(Max tmp())
+      Print "#";j;" " +Str$(_min,3,1) +".." +Str$(_max,3,1);
+
+      ' Determine percentiles
+      Sort tmp()
+      n0 = Int(nMax /100 *SRV_LOAD_LO_PERC)
+      If n0 <= 1 Then n0 = 0
+      n1 = Int(nMax /100 *SRV_LOAD_HI_PERC)
+      If n1 >= nMax Then n1 = nMax -1
+      srv.loadMin(j) = tmp(n0)
+      srv.loadMax(j) = tmp(n1)
+    Next
+    R.logLoadCalibVals
+
+    ' Write calibration values to file
+    Local string a$
+    Open cfg.loadFName$ For Output As #10
+    For j=0 To SRV_N_LOAD_CH-1
+      Print #10, srv.loadMin(j); ","; srv.loadMax(j)
+    Next
+    Close #10
+    Print "|Values written to file"
+
+    ' Deactivate calls to that function
+    iStep = 2
+  EndIf
+End Sub
+
+
+Sub R.logLoadCalibVals lo_p, hi_p
+  ' List load calibration values
+  Local integer j
+  Print "Servo load percentiles from calibration file ..."
+  Print "Servo " +Str$(SRV_LOAD_LO_PERC,3,0) +"%         ";
+  Print Str$(SRV_LOAD_HI_PERC, 3,0) +"%"
+  Print "----- ----------    ----------"
+  For j=0 To SRV_N_LOAD_CH-1
+    Print " #"+Str$(j,2)+"  ";
+    Print Str$(srv.loadMin(j),4,0) +"      ";
+    Print " .. ";
+    Print Str$(srv.loadMax(j),4,0)
+  Next j
+End Sub
+
 ' ===========================================================================
 ' Postures & moves
 ' ---------------------------------------------------------------------------
@@ -708,18 +950,38 @@ End Sub
 ' Communication w/ client
 ' ---------------------------------------------------------------------------
 Sub COM.Open
-  ' Open serial connection to client
-  Print "Connecting to client via COM1 ..."
-  SetPin GP1, GP0, COM1
-  Open "COM1:115200" As #2
+  ' Open communication to client
+  Print "Connecting to client as I2C device ... "
+  SetPin GP0, GP1, I2C
+  I2C Slave Open COM_I2C_ADDR, COM._send, COM._receive
   com.isReady = 1
+  Print "| Ready."
 End Sub
 
 
 Sub COM.Close
-  ' Close serial port to client
-  Close #2
+  ' Close communication to client
+  If Not(com.IsReady) Then Exit Sub
+  I2C Slave Close
   com.isReady = 0
+End Sub
+
+' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Sub COM._send
+  ' Called when client (master) is expecting data
+  ' Checks if last command was `CMD_STATE` and if so, send state data
+  If DEBUG And DEB_COM Then Print "Client expects data."
+  Local integer cmd = Byte(com.i2cBuf$, 9) -COM_DATA_OFFS
+  If cmd = CMD_STATE Then COM.sendState
+End Sub
+
+
+Sub COM._receive
+  ' Called when data is received from the client (master)
+  ' Read data and call `COM.handleMsg`, if data
+  If DEBUG And DEB_COM Then Print "Client sent data."
+  I2C Slave Read COM_MSG_LEN, com.i2cBuf$, com.i2cRecv
+  If DEBUG And DEB_COM Then Print com.i2cRecv;" byte(s), MM.I2C=";MM.I2C;"."
 End Sub
 
 ' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -736,115 +998,117 @@ Sub COM.handleMsg
   EndIf
   com.in_res = 0
 
-  ' Check if COM is ready and if there is data waiting
+  ' Check if communication link is ready and if there is data waiting
   If Not(com.isReady) Then Exit Sub
-  If Loc(#2) > 0 Then
-    ' Read the waiting data
-    com.in_res = RES_NEW_MSG
-    Line Input #2, buf$
-    n = Peek(Byte pbuf)
-    If n <> COM_MSG_LEN Then
-      ' Error: Length invalid
-      com.in_res = com.in_res Or RES_ERROR
-      Exit Sub
-    EndIf
-    R.RGB_LED 1, 20,10,0
+  ' Get data read by I2C interrupt, if any
+  If com.i2cRecv = 0 Then Exit Sub
+  buf$ = com.i2cBuf$
+  com.i2cRecv = 0
 
-    ' Parse the message, starting with the time of message
-    ' (as hexlified uint32)
-    com.in_t_ms = Val("&H"+Mid$(buf$,1,8))
-
-    ' Unpack single-byte values into an array
-    Memory Copy pbuf+9, pv, COM_N_BYTEVAL
-    Memory Unpack v(), com.in(), COM_N_BYTEVAL, 8
-    Math Add com.in(), -COM_DATA_OFFS, com.in()
-
-   'If DEBUG > 0 Then Print "<- "+Field$(CMD_STR$, com.in(0))
-    If DEBUG And DEB_COM Then
-      Print "|<Parameters"
-      Math V_print com.in()
-    EndIf
-
-    ' Extract data array
-    '      0 : command code
-    '      1 : n data bytes (following), currenly 12
-    '      2 : bodyYOffs
-    '      3 : legLiftH
-    '    4,5 : x_zTravL
-    '      6 : travRotY
-    '      7 : delaySpeed/10
-    '      8 : buzzer signal
-    '      9 : command extension
-    '  10,11 : x_zBody
-    '  12-14 : xyzBodyRot
-    If com.in(0) = CMD_SHOW Then
-      ip = com.in(9)
-      ib = com.in(8)
-      If ip > 0 Then
-        ' Showing posture
-        R.showingOff = 1
-        pst.state(0) = ip   ' posture #
-        j1 = pst.n(ip-1, 0)
-        nj = pst.n(ip-1, 1)
-        pst.state(1) = j1   ' start row in `pst.data()`
-        pst.state(2) = nj   ' n steps
-        pst.state(3) = 0    ' time of last step (ms)
-        Print "|<Showing #"+Str$(ip)+" "+Str$(j1)+"..."+Str$(j1+nj-1)
-      ElseIf ib > 0 Then
-        ' Play beep
-        For j=0 To 20
-          'R.Buzz 110+Int(Math(Rand)*400), Int(Math(Rand)*50 +10)
-          'R.Buzz 110+Int(Math(Rand)*220 +(100-j)*30), 2
-          R.Buzz 110+Int(Math(Rand)*220), 30
-        Next
-      EndIf
-      com.in_res = com.in_res Or RES_HANDLED
-
-    ElseIf com.in(0) = CMD_BODY Then
-      ' Body posture
-      Inc com.in(2), -BODY_Y_OFFS_MIN
-      Inc com.in(3), -LEG_LIFT_MIN
-      R.inputBody com.in(2), com.in(3)
-      Inc com.in(10), -BODY_X_Z_POS_LIM(0)
-      Inc com.in(11), -BODY_X_Z_POS_LIM(2)
-      Inc com.in(12), -BODY_XYZ_ROT_LIM(0)
-      Inc com.in(13), -BODY_XYZ_ROT_LIM(1)
-      Inc com.in(14), -BODY_XYZ_ROT_LIM(2)
-      R.inputPosition com.in(10),com.in(11), com.in(12),com.in(13),com.in(14)
-      com.in_res = com.in_res Or RES_HANDLED
-
-    ElseIf com.in(0) = CMD_MOVE Then
-      ' Movement
-      Inc com.in(4), -TRAVEL_X_Z_LIM(0)
-      Inc com.in(5), -TRAVEL_X_Z_LIM(2)
-      Inc com.in(6), -TRAV_ROT_Y_LIM
-      com.in(7) = com.in(7) *10
-      R.inputWalk com.in(4), com.in(5), com.in(6), com.in(7)
-      com.in_res = com.in_res Or RES_HANDLED
-
-    ElseIf com.in(0) = CMD_STOP Then
-      ' Stop all motion
-      com.in(7) = com.in(7) *10
-      R.inputWalk 0,0,0, com.in(7)
-      com.in_res = com.in_res Or RES_HANDLED
-
-    ElseIf com.in(0) = CMD_POWER Then
-      ' Power on or off, depending on state
-      If Not(com.in(9) = R.running) Then R.Power Choice(com.in(9) = 2, 1,0)
-      com.in_res = com.in_res Or RES_HANDLED
-
-    ElseIf com.in(0) = CMD_STATE Then
-      ' Ignore
-      com.in_res = com.in_res Or RES_HANDLED
-    EndIf
-
-    If com.in_res And RES_HANDLED Then
-    Else
-      Print "|<Error: Invalid command ("+Str$(com.in(0))+")"
-      com.in_res = com.in_res Or RES_ERROR
-    EndIf
-    R.RGB_LED 1, 0,0,0
+  ' Check data
+  com.in_res = RES_NEW_MSG
+  n = PEEK(BYTE pbuf)
+  If n <> COM_MSG_LEN Then
+    ' Error: Length invalid
+    com.in_res = com.in_res Or RES_ERROR
+    Exit Sub
   EndIf
+  R.RGB_LED 1, 10,10,0
+
+  ' Parse the message, starting with the time of message
+  ' (as hexlified uint32)
+  com.in_t_ms = Val("&H"+Mid$(buf$,1,8))
+
+  ' Unpack single-byte values into an array
+  Memory Copy pbuf+9, pv, COM_N_BYTEVAL
+  Memory Unpack v(), com.in(), COM_N_BYTEVAL, 8
+  Math Add com.in(), -COM_DATA_OFFS, com.in()
+
+ 'If DEBUG > 0 Then Print "<- "+Field$(CMD_STR$, com.in(0))
+  If DEBUG And DEB_COM Then
+    Print "|<Parameters"
+    Math V_print com.in()
+  EndIf
+
+  ' Extract data array
+  '      0 : command code
+  '      1 : n data bytes (following), currenly 12
+  '      2 : bodyYOffs
+  '      3 : legLiftH
+  '    4,5 : x_zTravL
+  '      6 : travRotY
+  '      7 : delaySpeed/10
+  '      8 : buzzer signal
+  '      9 : command extension
+  '  10,11 : x_zBody
+  '  12-14 : xyzBodyRot
+  If com.in(0) = CMD_SHOW Then
+    ip = com.in(9)
+    ib = com.in(8)
+    If ip > 0 Then
+      ' Showing posture
+      R.showingOff = 1
+      pst.state(0) = ip   ' posture #
+      j1 = pst.n(ip-1, 0)
+      nj = pst.n(ip-1, 1)
+      pst.state(1) = j1   ' start row in `pst.data()`
+      pst.state(2) = nj   ' n steps
+      pst.state(3) = 0    ' time of last step (ms)
+      Print "|<Showing #"+Str$(ip)+" "+Str$(j1)+"..."+Str$(j1+nj-1)
+    ElseIf ib > 0 Then
+      ' Play beep
+      For j=0 To 20
+        'R.Buzz 110+Int(Math(Rand)*400), Int(Math(Rand)*50 +10)
+        'R.Buzz 110+Int(Math(Rand)*220 +(100-j)*30), 2
+        R.Buzz 110+Int(Math(Rand)*220), 30
+      Next
+    EndIf
+    com.in_res = com.in_res Or RES_HANDLED
+
+  ElseIf com.in(0) = CMD_BODY Then
+    ' Body posture
+    Inc com.in(2), -BODY_Y_OFFS_MIN
+    Inc com.in(3), -LEG_LIFT_MIN
+    R.inputBody com.in(2), com.in(3)
+    Inc com.in(10), -BODY_X_Z_POS_LIM(0)
+    Inc com.in(11), -BODY_X_Z_POS_LIM(2)
+    Inc com.in(12), -BODY_XYZ_ROT_LIM(0)
+    Inc com.in(13), -BODY_XYZ_ROT_LIM(1)
+    Inc com.in(14), -BODY_XYZ_ROT_LIM(2)
+    R.inputPosition com.in(10),com.in(11), com.in(12),com.in(13),com.in(14)
+    com.in_res = com.in_res Or RES_HANDLED
+
+  ElseIf com.in(0) = CMD_MOVE Then
+    ' Movement
+    Inc com.in(4), -TRAVEL_X_Z_LIM(0)
+    Inc com.in(5), -TRAVEL_X_Z_LIM(2)
+    Inc com.in(6), -TRAV_ROT_Y_LIM
+    com.in(7) = com.in(7) *10
+    R.inputWalk com.in(4), com.in(5), com.in(6), com.in(7)
+    com.in_res = com.in_res Or RES_HANDLED
+
+  ElseIf com.in(0) = CMD_STOP Then
+    ' Stop all motion
+    com.in(7) = com.in(7) *10
+    R.inputWalk 0,0,0, com.in(7)
+    com.in_res = com.in_res Or RES_HANDLED
+
+  ElseIf com.in(0) = CMD_POWER Then
+    ' Power on or off, depending on state
+    If Not(com.in(9) = R.running) Then R.Power Choice(com.in(9) = 2, 1,0)
+    com.in_res = com.in_res Or RES_HANDLED
+
+  ElseIf com.in(0) = CMD_STATE Then
+    ' Ignore
+    com.in_res = com.in_res Or RES_HANDLED
+  EndIf
+
+  If com.in_res And RES_HANDLED Then
+  Else
+    Print "|<Error: Invalid command ("+Str$(com.in(0))+")"
+    com.in_res = com.in_res Or RES_ERROR
+  EndIf
+  R.RGB_LED 1, 0,0,0
 End Sub
 
 ' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -852,6 +1116,7 @@ Sub COM.sendState
   ' Send state message to client
   Static integer first = 1, pbuf, pv
   Static string buf$ length COM_N_BYTEVAL
+  Static string sout$ length COM_MSG_LEN
   Static integer _out(COM_N_BYTEVAL-1), v(COM_N_BYTEVAL/8 -1)
   If first Then
     pbuf = Peek(VarAddr buf$)
@@ -860,7 +1125,7 @@ Sub COM.sendState
     first = 0
   EndIf
   If DEBUG And DEB_COM Then Print "Sending ..."
-  R.RGB_LED 1, 0,10,20
+  R.RGB_LED 1, 10,0,10
 
   ' Compile data array
   ' (assumes that the parameters are already range checked)
@@ -882,9 +1147,10 @@ Sub COM.sendState
   _out(6) = IMU(1) +90
   _out(7) = IMU(2) +90
   _out(8) = ggn.state
-  _out(9) = Int(srv.load(0) And &HEF)
-  _out(10)= Int(srv.load(1) And &HEF)
-  _out(11)= Int(srv.load(2) And &HEF)
+  _out(9) = Int(srv.load(0))
+  _out(10)= Int(srv.load(1))
+  _out(11)= Int(srv.load(2))
+  _out(12)= Int(srv.load(3))
   ' TODO: add servo load data to _out(9-16)
   If DEBUG And DEB_COM Then
     Print "|>Parameters (offset w/ limits)"
@@ -897,7 +1163,8 @@ Sub COM.sendState
   Memory Copy pv, pbuf+1, COM_N_BYTEVAL
 
   ' Send message
-  Print #2, Hex$(Timer, 8) +buf$
+  sout$ = Hex$(Timer, 8) +buf$
+  I2C Slave Write COM_MSG_LEN, sout$
   R.RGB_LED 1, 0,0,0
 End Sub
 
@@ -918,6 +1185,8 @@ Sub R.resetGaitGen
     Dim ggn.xyzLeg(LEG_N-1, 2), ggn.xyzFoot(LEG_N-1, 2)
     Dim ggn.legAng(LEG_N-1, 2), ggn.srvAng(LEG_N-1, 2)
     Dim ggn.srvPos(SRV_N-1)
+    Dim ggn.dtMove(2), ggn.dtExec(2)
+    Dim integer ggn.nExec = 0, ggn.nMove = 0
   EndIf
   ' Reset GGN control parameters
   ' (all times are in [ms])
@@ -935,6 +1204,8 @@ Sub R.resetGaitGen
   ggn.feetDown   = 1
   ggn.lastErr    = ERR_OK
   ggn.IKErr      = 0
+  Math Set 0, ggn.dtMove()
+  Math Set 0, ggn.dtExec()
 
   ' Reset input parameters
   R.resetInput
@@ -971,14 +1242,14 @@ Sub R.spinGaitGen
     EndIf
   ElseIf ggn.state = GGN_DO_SERVOS Then
     ' Previous move is finished, now commit next move
-   '_t = Timer
+    _t = Timer
     R._executeMove
-   '_t = Timer -_t : Print "exec="+Str$(_t,0,3)
+    _update_timing Timer -_t, ggn.dtExec(), ggn.nExec
   ElseIf ggn.state = GGN_COMPUTE Then
     ' Calculate next move and set timer for move execution
-   '_t = Timer
+    _t = Timer
     R._computeMove
-   '_t = Timer -_t : Print "comp="+Str$(_t,0,3)
+    _update_timing Timer -_t, ggn.dtMove(), ggn.nMove
   EndIf
 End Sub
 
@@ -992,6 +1263,8 @@ Sub R._computeMove
   ' Initialize
   If DEBUG And DEB_VERB Then Print "R._computeMove"
   R.LED 1
+  R.RGB_LED 1, 10,0,0
+
   t1 = Timer
   ggn.lastErr = ERR_OK
   ggn.IKErr = 0
@@ -1085,6 +1358,7 @@ Sub R._computeMove
   EndIf
 
   R.LED 0
+  R.RGB_LED 1, 0,0,0
   ' >==
   'Print "#_dtNextMov=";ggn.dtNextMov;" dtMov=";ggn.dtMov;
   'Print " dtLastCalc=";ggn.dtLastCalc;" tMoveStart=";ggn.tMoveStart;
@@ -1543,227 +1817,7 @@ End Sub
 ' ===========================================================================
 ' Maestro controller-related routines
 ' ---------------------------------------------------------------------------
-' All-servo routines
-' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-Sub R.Angles2Pos a_deg(), p()
-  ' Converts all servo positions from angle (in degree) to position (in us)
-  ' Note that is `a_deg(iLeg, COX|FEM|TIB)`
-  Local integer i, j, k,  a
-  For i=0 To LEG_N-1
-    For j=0 To 2
-      k = leg.srv(j,i)
-      a = Min(srv.r_deg(1,k), Max(srv.r_deg(0,k), a_deg(i,j)))
-      p(k) = srv.r_us(0,k) +srv.dt_us(k) *(a -srv.r_deg(0,k)) /srv.da_deg(k)
-    Next j
-  Next i
-End Sub
-
-' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-Sub R._moveAllServos t_us(), dur_ms, n_srv%, wait%, no_move%
-  ' Move the first `n_srv%` servos, or, if 0, all `SRV_N` servos to positions
-  ' `t_us%()`. If `dur_ms` > 0, then it will attempt to move the servos such
-  ' that they arrive at their targets at the same time (after `dur_ms`).
-  ' Otherwise, servos are moved immediately.
-  ' If `no_move%`, only internal position is updated.
-  ' (NO PARAMETER CHECKING, starts with servo #0)
-  If DEBUG And DEB_VERB Then Print "R._moveAllServos"
-  Static String cmd$ length 40
-  Static integer t(SRV_N-1), lhb, caddr = 0
-  Static v(SRV_N-1), w(SRV_N-1)
-  Local integer i, j, n = Choice(n_srv% = 0, SRV_N, n_srv%)
-  Local dt
-
-  ' Prepare if first call
-  If caddr = 0 Then
-    cmd$ = "\&9F"+Chr$(n)+Chr$(0)+Space$(SRV_N*2)
-    caddr = Peek(VARADDR cmd$) +4
-  EndIf
-
-  ' Inactivate timer interrupt
-  SetTick 0,0,1
-  srv.isMoveDone = 1
-  srv.iStep = -1
-
-  ' Check if target position is current position
-  Math C_Sub t_us(), srv.pCurr(), w()
-  Math C_Mult w(), w(), w()
-  If Math(Sum w()) < 1 Then Exit Sub
-
-  If no_move% Then
-    ' Just update internal servo positions
-    Math Scale t_us(), 1, srv.pCurr()
-    Exit Sub
-  EndIf
-  If dur_ms = 0 Then
-    ' No move duration is given, just move to target
-    Math Scale t_us(), 1, srv.pCurr()
-    Math Scale t_us(), 4, t()
-  Else
-    ' Generate a sequence of steps
-    Math C_Sub t_us(), srv.pCurr(), v()
-    Math C_Div v(), srv.nStep(), v()
-    Math Scale srv.pCurr(), 1, w()
-    For i=0 To SRV_N_STEPS-1
-      Math C_Add w(), v(), w()
-      Math Insert srv.pSteps(), i,, w()
-    Next
-    Math Slice srv.pSteps(), 0,, w()
-    Math Scale w(), 4, t()
-    dt = dur_ms /SRV_N_STEPS
-    srv.iStep = 1
-    srv.nSrv = n
-    srv.isMoveDone = 0
-  EndIf
-
-  ' Move to position `t()`
-  j = caddr
-  For i=0 To n-1
-    lhb = (((t(i) >> 7) And &H7F) << 8) Or (t(i) And &H7F)
-    Poke SHORT j, lhb : Inc j, 2
-  Next
-  Print #5, cmd$
-
-  ' If step sequence, then start interrupt routine
-  If srv.iStep >= 0 Then SetTick dt, R._cbServo, 1
-  If wait% Then Do While Lof(#5) < 256 : Pause 1 : Loop
-End Sub
-
-
-Sub R._cbServo
-  ' INTERNAL: Timer callback for smooth servo movements
-  Static integer t(SRV_N-1), i, j, lhb, caddr = 0
-  Static String cmd$ length 40
-  Static w(SRV_N-1)
-  ' Prepare if first call
-  If caddr = 0 Then
-    cmd$ = "\&9F"+Chr$(SRV_N)+Chr$(0)+Space$(SRV_N*2)
-    caddr = Peek(VARADDR cmd$) +4
-  EndIf
-
-  ' Get positions and send to servo controller
-  Math Slice srv.pSteps(), srv.iStep,, w()
-  Math Scale w(), 4, t()
-  j = caddr
-  For i=0 To srv.nSrv-1
-    lhb = (((t(i) >> 7) And &H7F) << 8) Or (t(i) And &H7F)
-    Poke SHORT j, lhb : Inc j, 2
-  Next
-  Print #5, cmd$
-
-  ' Check if move is done ...
-  Inc srv.iStep, 1
-  If srv.iStep = SRV_N_STEPS Then
-    ' Stop timer and set target position as new current position
-    SetTick 0,0,1
-    Math Slice srv.pSteps(), SRV_N_STEPS-1,, srv.pCurr()
-    srv.isMoveDone = 1
-    srv.iStep = -1
-  EndIf
-End Sub
-
-
-Sub R.servosOff
-  ' Switch all servos off
-  Print #5, "\&9F"+Chr$(SRV_N)+Chr$(0)+String$(SRV_N*2, 0)
-  Print "| Servos off (&H"+Hex$(R.getServoErr(), 4)+")"
-End Sub
-
-' ---------------------------------------------------------------------------
-' Single-servo methods
-' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-Sub R.setServo_deg i%, a_deg%, wait%
-  ' Set servo `i%` position as angle `a_deg%` in degree
-  If i% >= 0 And i% < SRV_N Then
-    Local integer _t = R._a2t(i%, a_deg%)
-    R._SetServo i%, _t, wait%
-  EndIf
-End Sub
-
-Sub R.setServo i%, t_us%, wait%
-  ' Set servo `i%` position as timing `t_us%` (in us)
-  If i% >= 0 And i% < SRV_N Then
-    Local integer _t = Min(Max(t_us%, SRV_MIN_US), SRV_MAX_US)
-    R._SetServo i%, _t, wait%
-  EndIf
-End Sub
-
-Sub R._setServo i%, t_us%, wait%
-  ' Set servo `i%` position as timing `t_us%` (in us)
-  ' If `wait` <> 0, it is waited until the out buffer is empty, NOT until
-  ' the servo has reached its position
-  ' (NO PARAMETER CHECKING)
-  Local integer hb, lb
-  Local integer _t = t_us% *4
-  hb = (_t And >> 7) And &H7F
-  lb = _t And &H7F
-
-  ' Send `set target` command
-  If DEBUG And DEB_SRV Then
-    Print "Servo #";i%;" to ";Str$(_t /4, 0);" us"
-  EndIf
-  Print #5, "\&84"+Chr$(i%)+Chr$(lb)+Chr$(hb)
-  If wait% Then Do While Lof(#5) < 256 : Pause 1 : Loop
-End Sub
-
-Function R._a2t(i%, a_deg%) As integer
-  ' Convert for servo `%i` the angle `a_deg%` into the position (in us)
-  ' Considers the servo's range in deg and its calibration values
-  Local integer t, a = Min(srv.r_deg(1,i%), Max(srv.r_deg(0,i%), a_deg%))
-  t = srv.r_us(0,i%) +srv.dt_us(i%) *(a -srv.r_deg(0,i%)) /srv.da_deg(i%)
-  R._a2t = t
-  If Not(DEBUG And DEB_SRV) Then Exit Function
-  Print "Servo #"+Str$(i%)+" "+Str$(a,3,0) +Chr$(186)+" -> ";
-  Print Str$(t,4,0)+" us"
-End Function
-
-' ---------------------------------------------------------------------------
-' Routines to change servo parameters and retrieve information
-' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-Sub R.setServoSpeed i%, speed%
-  ' Sets speed of servo `i%`
-  Local integer hb, lb
-  If i% < 0 Or i% > SRV_N-1 Then Exit Sub
-  hb = (speed% >> 7) And &H7F
-  lb = speed% And &H7F
-  Print #5, "\&87"+Chr$(i%)+Chr$(lb)+Chr$(hb)
-End Sub
-
-
-Sub R.setServoAccel i%, accel%
-  ' Sets acceleration of servo `i%`
-  Local integer hb, lb
-  If i% < 0 And i% > SRV_N-1 Then Exit Sub
-  hb = (accel% >> 7) And &H7F
-  lb = accel% And &H7F
-  Print #5, "\&89"+Chr$(i%)+Chr$(lb)+Chr$(hb)
-End Sub
-
-' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-Function R.getServoErr() As integer
-  ' Returns (and clears) last servo controller error
-  Static string res$
-  Static integer pRes = Peek(VARADDR res$)
-  Local integer i
-
-  ' Send `get errors` command and wait for reply
-  If DEBUG And DEB_SRV Then Print "Get errors: ";
-  Print #5, "\&A1"
-  i = 20
-  Do While Loc(#5) = 0 And i > 0
-    Pause 2
-    Inc i, -1
-  Loop
-  res$ = Input$(2, #5)
-
-  ' Process reply
-  If Peek(BYTE pRes) > 0 Then
-    R.getServoErr = (Peek(BYTE pRes+1) +(Peek(BYTE pRes+2) << 8)) And &H1F
-    If DEBUG And DEB_SRV Then Print "0x"+Hex$(R.getServoErr, 2)
-  Else
-    R.getServoErr = -1
-    If DEBUG And DEB_SRV Then Print "No reply"
-  EndIf
-End Function
+' All-servo routines in `lib_maestro.bas`
 
 ' ===========================================================================
 ' Hexapod board-related routines
@@ -1773,6 +1827,7 @@ Sub R.LED state%
   Pin(PIN_LED) = state% <> 0
 End Sub
 
+
 Sub R.Buzz freq%, dur_ms%
   ' Buzz at `freq%` Hz for `dur_ms%` milliseconds
   Local integer f = Max(Min(freq%, 10000), 0)
@@ -1780,10 +1835,12 @@ Sub R.Buzz freq%, dur_ms%
   If dur_ms% > 0 Then Pause dur_ms% : PWM 3, f,0 : EndIf
 End Sub
 
+
 Function R.servoBattery_V()
   ' Return servo battery voltage in [V]
   R.servoBattery_V = Pin(PIN_AIN_SRV_BAT) *3.54
 End Function
+
 
 Function R.logicBattery_V()
   ' Return logic battery voltage in [V]
@@ -1798,11 +1855,11 @@ Sub R.RGB_LED i, r,g,b, _auto
   Local integer c
   If _auto > 0 Then
     If R.running = 1 Then
-      r = rgb.conn : g = 0 : b =30
+      r = 10 : g = 0 : b = 0
     ElseIf R.running = 2 Then
-      r = rgb.conn : g =50 : b = 0
+      r = 10 : g = rgb.conn : b = 0
     ElseIf
-      r = rgb.conn : g = 0 : b = 0
+      r = 0 : g = rgb.conn : b = 10
     EndIf
   EndIf
   If i = RGB_I_PULSE Then
@@ -1836,14 +1893,31 @@ Sub R.RGB_LED_pulse
   Device WS2812 O, PIN_WS2812, N_WS2812, rgb.rgb()
 End Sub
 
+' ===========================================================================
+' Helpers
 ' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
-Sub _log.servos
-  ' Print current angle (in degree) and position (in us) for each servo
-  Local integer i
-  For i=0 To SRV_N-1
-    Print "Servo #"+Str$(i)+" "+Str$(srv.ang(i),3,0) +Chr$(186)+" -> ";
-    Print Str$(srv.pos(i),4,0)+" us"
-  Next
+Sub _update_timing _dt, _var(), ByRef _n%
+  ' Update `_var()` with sum, min, and max, and increments `_n%`
+  Inc _var(0), _dt
+  _var(1) = Choice(_n% = 0, _dt, Min(_var(1), _dt))
+  _var(2) = Max(_var(2), _dt)
+  Inc _n%, 1
 End Sub
 
-' ---------------------------------------------------------------------------                                                                                  
+
+Sub _print_timing sVal$, _avg, _sd, _n, _min, _max, sUnit$
+  ' Print a line with timing information
+  Print sVal$ +" " +Str$(_avg,3,3);
+  If _sd > 0 Then
+    Print " "+Chr$(177) +" " +Str$(_sd,0,3);
+  EndIf
+  Print " "  +sUnit$ +" (n=" +Str$(_n);
+  If _min = _max Then
+    Print ")"
+  Else
+    Print ", " +Str$(_min,0,3) +".." +Str$(_max,0,3) +")"
+  EndIf
+End Sub
+
+' ---------------------------------------------------------------------------
+                          

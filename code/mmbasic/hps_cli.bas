@@ -1,9 +1,13 @@
-' hexapod-client v0.1.24
+' hexapod-client v0.2.04
 ' ----------------------
 ' Runs the robot.
 ' Controls the server (`hps_srv.bas`) via a serial connection.
 '
-' Copyright (c) 2023-24 Thomas Euler
+' Notes:
+' - To connect wireless x-box-like gamepad, run `gamepad monitor`
+'   and make sure that the gamepad is in `U` mode
+'
+' Copyright (c) 2023-25 Thomas Euler
 ' MIT Licence
 '
 ' v0.1.11 (2023-12-31)
@@ -18,6 +22,18 @@
 ' v0.1.23
 ' - CMD_SHOW for defined postures and beep sounds implemented
 ' - gamepad control further completed
+' v0.2.00
+' - Added the option to use I2C for server-client communication, to free one
+'   hardware UART (e.g., for the TOF sensor)
+' v0.2.01
+' - Small changes to account for Gamepad commands in MMBasic 6.00.xx
+' v0.2.03
+' - Remove older TOF parts since the sensor will be ESP32-based
+' - Prepare for ESP32-Cam sensor
+' - `ctrlByKeyboard` routine moved to library
+' - "Window" in terminal to display status
+' v0.2.04
+' - Remove server-client via COM
 '
 ' All boards/firmware versions:
 '   OPTION COLORCODE ON
@@ -45,9 +61,14 @@
 '
 ' Hardware (Client):
 ' - 240x240 ST7789 display
-' - COM2 @ GP9,GP8 as #1 (to RP2040 w/ VL53L5CX TOF sensor)
-' - COM1 (tx=GP0, rx=GP1) as device #2 -> To connect to server
+'[ COM2 @ GP9,GP8 as #1 (to RP2040 w/ VL53L5CX TOF sensor)] - TO BE CHANGED
+' - Client-server:
+'   (a) COM1 (tx=GP0, rx=GP1) as device #2 -> To connect to server
+'   (b) I2C (sda=GP0, scl=GP1) as master, with server being device &H42
 ' - handshake GP2->GP7 (server), GP3<-GP8 (server)
+'
+' Requires libraries:
+' - `lib_keyboard.bas` (`ctrlByKeyboard` routine)
 '
 ' ---------------------------------------------------------------------------
 Option Base 0
@@ -55,6 +76,12 @@ Option Explicit
 Option Escape
 Option Default Float
 Option Heartbeat Off
+
+Sub MM.Startup
+  Print "`" +MM.Info(Platform) +"` running on " +MM.DEVICE$;
+  Print "MMBasic v" +Str$(MM.Info(Version))
+  Gamepad monitor
+End Sub
 
 ' ---------------------------------------------------------------------------
 ' Initialization of global definitions
@@ -65,14 +92,15 @@ Main:
   DEBUG = 0
 
   ' Configuration
-  Dim USE_LCD  = 1
-  Dim USE_WIFI = 0
-  Dim USE_GPAD = 0
-  Dim USE_TOFF = 1
+  Dim integer USE_LCD      = 0
+  Dim integer USE_WIFI     = 0
+  Dim integer USE_GPAD     = 1
+  Dim integer USE_CAM      = 0
+  Dim integer USE_TERMINAL = 1
 
   ' Control variables
-  Dim integer i, j, ch, running = 1
-  Dim _t = Timer, t_loop
+  Dim integer i, j, ch, running = 1, i_loop = 0
+  Dim _t = Timer, t_loop, t_state
   Dim t_info = _t, t_lcd = _t, t_hs = _t
 
   ' Input representation
@@ -84,8 +112,10 @@ Main:
   ' Initialize
   R.init
 
-  ' Start TOF sensor ranging
-  If USE_TOFF Then TOF.start
+  ' Start camera/ToF sensor
+  /*
+  If USE_CAM Then ...
+  */
 
   ' Main loop
   ' ---------
@@ -102,7 +132,8 @@ Main:
     ' Read poti (selector)
     R.selector = R.Poti()
 
-    ' Update TOF sensor data
+    ' Update camera/TOF sensor data
+    /*
     If tof.newData Then
       Print tof.iFr
       For i=0 To TOF_FR_DX-1
@@ -114,9 +145,16 @@ Main:
       Print
       tof.newData = 0
     EndIf
+    */
 
-    ' Check for server message and handle it ...
-    COM.handleStateMsg
+    ' Check for/request server message and handle it ...
+    ' (With I2C request state at given intervals if connected)
+    If R.connected Then
+      If t_state +1000 < t_loop Then ' 250
+        COM.handleStateMsg
+        t_state = Timer
+      EndIf
+    EndIf
 
     ' Handle keyboard input, if any
     ' End program on ESC, send command to server, if one was generated
@@ -130,16 +168,92 @@ Main:
 
     ' Reporting ...
     If t_lcd +100 < t_loop Then
-      LCD.update
+      If USE_LCD Then LCD.update
+      If i_loop > 1500 And USE_TERMINAL Then Terminal.update
       t_lcd = Timer
     EndIf
+
+    Inc i_loop, 1
   Loop
 
+  ' End program
   Pin(PIN_HS_OUT) = 0
   R.running = 1 : COM.sendMsg CMD_POWER
   R.Shutdown
   End
 
+
+' ---------------------------------------------------------------------------
+Sub _printLn y%, txt$(), state%(), empty%
+  ' Print a line at y% in the terminal window, using the text fields
+  ' in txt$() and color by state()
+  ' (4 fields with 18 characters each)
+  Static integer first = 1
+  Static string VT$(5) length 14
+  If empty% Then Print @(0, y% *12) Space$(80) : Exit Sub : EndIf
+  If first Then
+    VT$(0) = Chr$(27) +"[m"                     ' Normal
+    VT$(1) = Chr$(27) +"[42m" +Chr$(27) +"[97m" ' Ok
+    VT$(2) = Chr$(27) +"[43m" +Chr$(27) +"[30m" ' Warning
+    VT$(3) = Chr$(27) +"[41m" +Chr$(27) +"[30m" ' Danger
+    VT$(4) = Chr$(27) +"[37m"                   ' Disabled
+    VT$(5) = Chr$(27) +"[100m"+Chr$(27) +"[97m" ' Active
+    first = 0
+  EndIf
+  Local string s$ = VT$(0)
+  Local integer i, n
+  For i=0 To 3
+    n = 18 -Len(txt$(i))
+    Cat s$, VT$(state%(i)) +"|" +txt$(i) +Space$(n) +VT$(0) +" "
+  Next
+  Print @(0, y% *12) +s$ +VT$(0) +"|"
+End Sub
+
+
+Sub Terminal.update
+  ' Prints key data on the robot's state into the terminal (GUI-like)
+  Local string tx$(3) length 18
+  Local integer sta(3), i, j
+  Local float v
+
+  sta(0) = 0
+  tx$(0) = "'" +Field$(SEL_STATE$, R.selector +1) +"'"
+  sta(1) = 4
+  tx$(1) = ""
+  sta(2) = Choice(R.connected, 5, 4)
+  tx$(2) = Choice(R.connected, "Connected", "Disconnected")
+  sta(3) = 5
+  tx$(3) = "GGN `" +Field$(GGN_STATE$, R.ggn_state +1) +"`"
+  _printLn 0, tx$(), sta()
+
+  ' Battery, IMU etc.
+  v = R.servoBattery_V
+  sta(0) = Choice(v < 7.5, Choice(v < 7.0, 3, 2), 1)
+  tx$(0) = "Batt/Servo = " +Str$(v, 1, 1)+"V"
+  v = R.logicBattery_V
+  sta(1) = Choice(v < 3.7, Choice(v < 3.6, 3, 2), 1)
+  tx$(1) = "Batt/Logic = " +Str$(v, 1, 1)+"V"
+  sta(2) = 4
+  tx$(2) = ""
+  sta(3) = 5
+  tx$(3) = "IMU h" +Str$(R.IMU(0),3,0) +" p" +Str$(R.IMU(1),3,0)
+  Cat tx$(3), " r" +Str$(R.IMU(2),3,0)
+  _printLn 1, tx$(), sta()
+
+  ' Servo load
+  For i=0 To SRV_N_LOAD_CH -1
+    v = R.load(i)
+    j = Min(Max(Int(v /10), 0), 10)
+    sta(i) = Choice(v < 30, 2, Choice(v >= 200, 3, 1))
+    tx$(i) = Str$(v,4,0) +String$(j, "#")
+  Next
+  _printLn 2, tx$(), sta()
+
+  _printLn 3, tx$(), sta(), 1
+End Sub
+
+' ===========================================================================
+' Handling gamepad input
 ' ---------------------------------------------------------------------------
 Function ctrlByGamepad()
   ' Check for gamepad input and handle if, if possible. Returns
@@ -286,161 +400,10 @@ Function ctrlByGamepad()
   ctrlByGamepad = ch
 End Function
 
+' ===========================================================================
+' Handling keyboard input
 ' ---------------------------------------------------------------------------
-Function ctrlByKeyboard()
-  ' Check for keyboard input and handle if, if possible. Returns
-  ' key code or 0, if no key was pressed
-  Local string key$
-  Local integer ch = 0
-  Local v1
-  in.cmd = 0
-  key$ = Inkey$
-  If Len(key$) > 0 Then
-    ' Process keyboard input
-    ch = Asc(LCase$(key$))
-    Select Case ch
-      Case 145     ' F1  - Help
-        Print
-        Print "  F1          - help"
-        Print "Movement\r\n--------"
-        Print "  Up,Down     - Forwards/backward (z travel length) "
-        Print "  Left,Right  - Sideways (x travel length)"
-        Print "  Del,Pg-Down - Turn left/right (y travel rotation)"
-        Print "  1,2         - Velocity (delay speed)"
-        Print "Body\r\n----"
-        Print "  3,4         - y body offset"
-        Print "  5,6         - Leg lift height"
-        Print "  Q,A         - Lean forward/backward (z body)"
-        Print "  W,S         - Pitch (z body rotate)"
-        Print "  E,D         - Lean sideways (x body)"
-        Print "  R,F         - Roll (x body rotate)"
-        Print "  Ins,Pg-Up   - Yaw (y body rotate)"
-        Print "  End         - Stop motion "
-        Print "  F12         - Power up/down"
-        Print
-      Case 146     ' F2  - Status
-        R.logStateInfo
-
-      Case 49,50   ' 1,2 - delay speed
-        If R.running = 2 Then
-          Inc in.ds, Choice(ch = 49, -10, 10)
-          in.ds = Min(Max(in.ds, 0), DELAY_SPEED_MAX)
-          in.cmd = CMD_MOVE
-        EndIf
-      Case 51,52   ' 3,4 - body offset
-        If R.running = 2 Then
-          Inc in.bo_y, Choice(ch = 51, -5, 5)
-          in.bo_y = Min(Max(in.bo_y, 0), BODY_Y_OFFS_MAX)
-          in.cmd = CMD_BODY
-        EndIf
-      Case 53,54   ' 5,6 - leg lift height
-        If R.running = 2 Then
-          Inc in.lh, Choice(ch = 53, -5, 5)
-          in.lh = Min(Max(in.lh, LEG_LIFT_MIN), LEG_LIFT_MAX)
-          in.cmd = CMD_BODY
-        EndIf
-
-      Case 128,129,117,106 ' up,down (u,j) - z travel length
-        If R.running = 2 Then
-          If ch = 117 Then ch = 128
-          Inc in.tl_z, Choice(ch = 128, -10, 10)
-          v1 = TRAVEL_X_Z_LIM(2)
-          in.tl_z = Min(Max(in.tl_z, -v1), v1)
-          in.cmd = CMD_MOVE
-        EndIf
-      Case 130,131,105,107 ' left,right (i,k) - x travel length
-        If R.running = 2 Then
-          If ch = 105 Then ch = 130
-          Inc in.tl_x, Choice(ch = 130, -5, 5)
-          v1 = TRAVEL_X_Z_LIM(0)
-          in.tl_x = Min(Max(in.tl_x, -v1), v1)
-          in.cmd = CMD_MOVE
-        EndIf
-      Case 127,137,111,108 ' del,pg-down (o,l) - y travel rotation
-        If R.running = 2 Then
-          If ch = 111 Then ch = 127
-          Inc in.tr_y, Choice(ch = 127, -5, 5)
-          v1 = TRAV_ROT_Y_LIM
-          in.tr_y = Min(Max(in.tr_y, -v1), v1)
-          in.cmd = CMD_MOVE
-        EndIf
-
-      Case 113,97   ' q,a - z body (lean forward/backward)
-        If R.running = 2 Then
-          Inc in.ps_z, Choice(ch = 113, 5, -5)
-          v1 = BODY_X_Z_POS_LIM(2)
-          in.ps_z = Min(Max(in.ps_z, -v1), v1)
-          in.cmd = CMD_BODY
-        EndIf
-      Case 119,115  ' w,s - z body (rotate) -> pitch
-        If R.running = 2 Then
-          Inc in.pr_z, Choice(ch = 119, -5, 5)
-          v1 = BODY_XYZ_ROT_LIM(2)
-          in.pr_z = Min(Max(in.pr_z, -v1), v1)
-          in.cmd = CMD_BODY
-        EndIf
-      Case 101,100  ' e,d - x body (lean sideways)
-        If R.running = 2 Then
-          Inc in.ps_x, Choice(ch = 101, -5, 5)
-          v1 = BODY_X_Z_POS_LIM(0)
-          in.ps_x = Min(Max(in.ps_x, -v1), v1)
-          in.cmd = CMD_BODY
-        EndIf
-      Case 114,102  ' r,f - x body (rotate) -> roll
-        If R.running = 2 Then
-          Inc in.pr_x, Choice(ch = 114, -5, 5)
-          v1 = BODY_XYZ_ROT_LIM(0)
-          in.pr_x = Min(Max(in.pr_x, -v1), v1)
-          in.cmd = CMD_BODY
-        EndIf
-      Case 132,136  ' ins,pg_up - y body (rotate) -> yaw
-        If R.running = 2 Then
-          Inc in.pr_y, Choice(ch = 132, -5, 5)
-          v1 = BODY_XYZ_ROT_LIM(1)
-          in.pr_y = Min(Max(in.pr_y, -v1), v1)
-          in.cmd = CMD_BODY
-        EndIf
-      Case 134     ' reset body position
-        If R.running = 2 Then
-          R.resetInputBody
-          in.cmd = CMD_BODY
-        EndIf
-
-      Case 135,109 ' end (m) - stop all motion
-        If R.running = 2 Then
-          in.tl_x = 0 : in.tl_z = 0 : in.tr_y = 0
-          in.cmd = CMD_STOP
-        EndIf
-      Case 45      ' `-` - stop turning
-        If R.running = 2 Then
-          in.tr_y = 0
-          in.cmd = CMD_MOVE
-        EndIf
-
-      Case 156     ' F12 - Toggle power up/down
-        R.resetInputBody
-        R.running = Choice(R.running = 2, 1, 2)
-        in.cmd = CMD_POWER
-      Case 27      ' ESC, handled outside
-      Case Else
-        Print "ch=";ch
-    End Select
-  EndIf
-  ctrlByKeyboard = ch
-End Function
-
-
-Sub R.logStateInfo
-  ' Prints the robot's state info
-  Print "State:"
-  ' R.IMU(2), R.ggn_state
-  Print "| Batteries: servo="+Str$(R.ServoBattery_V,1,2)+"V ";
-  Print "logic="+Str$(R.LogicBattery_V,1,2)+"V"
- 'Print "| GGN state='";Field$(GGN_STATE$, R.ggn_state +1)+"' ";
-  Print "| Selector : '"+Field$(SEL_STATE$, R.selector +1)+"'"
-  Print "| IMU      : head="+Str$(R.IMU(0))+" pitch="+Str$(R.IMU(1))+" ";
-  Print "roll="+Str$(R.IMU(2))
-End Sub
+' -> Function `ctrlByKeyboard()` now in `lib_keyboard.bas`
 
 ' ===========================================================================
 ' Start of robot's definitions
@@ -450,8 +413,9 @@ Start:
   StartR: Restore StartR
   Print
 
-  Const R.VERSION$       = "0.1.24"
+  Const R.VERSION$       = "0.2.04"
   Const R.NAME$          = "hexapod|client"
+  Option Platform R.Name$
 
   ' - - - - - - - - - - - - - - - - - - - - - - - -  - - - - - - - - - - - -
   ' GLOBAL DEFINITIONS
@@ -493,6 +457,8 @@ Start:
   Const FEM2TIB2_DIF     = FEM_LEN^2 -TIB_LEN^2
   Const FEM_2LEN         = FEM_LEN *2
   Const FEMTIB_2LEN      = FEM_LEN *TIB_LEN *2
+
+  Const SRV_N_LOAD_CH    = 4
 
   ' Body-related definitions
   ' ------------------------
@@ -575,6 +541,9 @@ Start:
   Const COM_DATA_OFFS    = 14
   Const COM_N_BYTEVAL    = 16   ' number of single-byte values
   Const COM_MSG_LEN      = 24   ' total length in bytes
+  Const COM_I2C_ADDR     = &H42 ' Server address if I2C is used
+  Const COM_I2C_SPEED    = 400
+  Const COM_I2C_TOUT     = 200  ' ms
 
   Const CMD_BODY         = 1    ' Commands/message types
   Const CMD_MOVE         = 2
@@ -598,11 +567,14 @@ Start:
   ' - - - - - - - - - - - - - - - - - - - - - - - -  - - - - - - - - - - - -
   ' Pico pins
   Const PIN_POTI         = MM.Info(PinNo GP28)
+  /*
   Const PIN_TOF_RX       = MM.Info(PinNo GP9) ' COM2 as #1
   Const PIN_TOF_TX       = MM.Info(PinNo GP8)
+  */
   Const PIN_HS_IN        = MM.Info(PinNo GP3)
   Const PIN_HS_OUT       = MM.Info(PinNo GP2)
 
+  /*
   ' TOF sensor definitions
   ' Data format (74 bytes):
   '   bytes  0..7 : frame index (uint32, hexlified)
@@ -626,6 +598,7 @@ Start:
   Dim integer tof.dx, tof.dy, tof.len, tof.iFr
   Dim integer tof.fr(TOF_FR_DX-1, TOF_FR_DY-1)
   Dim integer tof.isReady = 0, tof.newData = 0
+  */
 
   ' Poti (selector) related definitions
   Const SEL_NONE         = 0
@@ -647,30 +620,31 @@ Start:
   Dim R.servoBattery_V = 0, R.logicBattery_V = 0
   Dim integer R.IMU(2), R.ggn_state = GGN_IDLE, R.selector = SEL_NONE
   Dim integer R.running = 1, R.WiFi = 0, R.connected = 0
+  Dim integer R.load(SRV_N_LOAD_CH -1)
+  Array Set 0, R.load()
 
   ' Jump to main
   GoTo Main
 
 ' ===========================================================================
-' Initialization and shutdown
+' Initialization, shutdown, and status
 ' ---------------------------------------------------------------------------
 Sub R.Init
   ' Prepare handware
   InitR: Restore InitR
   Print R.NAME$+" v"+R.VERSION$
-  Print "| running on "+MM.Device$+" MMBasic v"+Str$(MM.Ver)
+  Print "| running on "+MM.DEVICE$+" MMBasic v"+Str$(MM.Info(VERSION))
   Print "Initializing onboard hardware ..."
   Print "| CPU @ "+Str$(Val(MM.Info(CPUSPEED))/1E6)+" MHz"
 
   ' If USB version of firmware, check for gamepad ...
-  If MM.Device$ = "PicoMiteUSB" Then
+  If Instr(MM.DEVICE$, "USB") Then
     ' Gamepad-related variables
     Dim integer gpad.ch = 0, gpad.type = 0, gpad.changed = 0
     Dim integer gpad.data(6), gpad._intDetect = 0
     Print "| Gamepad support enabled. Checking for gamepad ..."
     initGamePad 131 ' 128
     USE_GPAD = gpad.ch > 0
-    USE_TOFF = 0
   EndIf
 
   ' Setup Poti
@@ -689,8 +663,7 @@ Sub R.Init
   SetPin PIN_HS_IN, INTH, R._cbHandshake, PULLDOWN
   SetPin PIN_HS_OUT, DOUT : Pin(PIN_HS_OUT) = 0
 
-  ' Open serial connections to TOF sensor and server; setup display
-  TOF.Open
+  ' Open serial connections server; setup display
   COM.Open
   LCD.power 1
 
@@ -704,10 +677,22 @@ End Sub
 Sub R.Shutdown
   ' Shutdown hardware
   Print "Shutting down ..."
-  TOF.Close
   COM.Close
-  'CD.power 0
+  LCD.power 0
   Print "Done."
+End Sub
+
+' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+Sub R.logStateInfo
+  ' Prints the robot's state info
+  Print "State:"
+  ' R.IMU(2), R.ggn_state
+  Print "| Batteries: servo="+Str$(R.ServoBattery_V,1,2)+"V ";
+  Print "logic="+Str$(R.LogicBattery_V,1,2)+"V"
+ 'Print "| GGN state='";Field$(GGN_STATE$, R.ggn_state +1)+"' ";
+  Print "| Selector : '"+Field$(SEL_STATE$, R.selector +1)+"'"
+  Print "| IMU      : head="+Str$(R.IMU(0))+" pitch="+Str$(R.IMU(1))+" ";
+  Print "roll="+Str$(R.IMU(2))
 End Sub
 
 ' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -757,7 +742,7 @@ Sub R._calcFootPos af, at, ac, xyz()
   ' Calculate starting positions for feet (from angles)
   Local float rf = Rad(af), rt = Rad(at), rc = Rad(ac), rx
   Local integer i
-  Math Set 0, xyz()
+  Array Set 0, xyz()
   For i=0 To LEG_N-1
     rx = FEM_LEN *Cos(rf) -TIB_LEN *Sin(rt +rf) +COX_LEN*COX_OFFS_FACT
     xyz(i,0) = rx *Cos(rc *i)
@@ -799,9 +784,9 @@ Sub LCD.drawBarC i, v,_vmax,_vlim, _x,_y,_dx,_dy, _f$, _a
   Local integer bc(3)=(C_BKG, C_BKG, C_TXT, C_TXT)
   Local integer dv, j, cx,cy
   If first Then
-    Math Set 0, vmaxlim()
-    Math Set 0, dxy()
-    Math Set 0, a()
+    Array Set 0, vmaxlim()
+    Array Set 0, dxy()
+    Array Set 0, a()
     first = 0
   EndIf
   If i < 0  Or i > LCD_N Then Exit Sub
@@ -871,8 +856,7 @@ End Sub
 
 ' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 Sub LCD.update
-  If Not(USE_LCD) Then Exit Sub
-  Static integer x0=MM.HRes\2, y0=MM.VRes\2, dr=x0-1
+  Static integer x0=MM.HRES\2, y0=MM.VRES\2, dr=x0-1
   Static integer xc,yc, xt(2),yt(2), xh(2),yh(2), rh=50
   Static ah
   Static t_bat=Timer, first = 1
@@ -933,17 +917,26 @@ End Sub
 ' Communication w/ server
 ' ---------------------------------------------------------------------------
 Sub COM.Open
-  ' Open serial connection to server
-  Print "Connecting to server via COM1 ..."
-  SetPin GP1, GP0, COM1
-  Open "COM1:115200" As #2
+  ' Open communication to server
+  Print "Connecting to server ";
+  Local string s$
+  Print "as I2C device &H" +Hex$(COM_I2C_ADDR, 2) +" ... "
+  SetPin GP0, GP1, I2C
+  I2C Open COM_I2C_SPEED, COM_I2C_TOUT
+  /*
+  I2C Check COM_I2C_ADDR
+  com.isReady = MM.I2C = 0
+  s$ = Choice(com.IsReady, "", "Device not found.")
+  */
   com.isReady = 1
+  Print "| " +Choice(com.isReady, "Ready.", "Error: " +s$)
 End Sub
 
 
 Sub COM.Close
-  ' Close serial port to server
-  Close #2
+  ' Close communication to server
+  If Not(com.isReady) Then Exit Sub
+  I2C Close
   com.isReady = 0
 End Sub
 
@@ -977,7 +970,11 @@ Sub COM.sendMsg _cmd
   Math Set 0, _out()
   _out(0) = _cmd
   _out(1) = 7
-  If _cmd = CMD_BODY Then
+
+  If _cmd = CMD_STATE Then
+    If Not(DEBUG And DEB_SLNT) Then Print "|>State"
+
+  ElseIf _cmd = CMD_BODY Then
     ' Body posture
     _out(2)  = in.bo_y -BODY_Y_OFFS_MIN
     _out(3)  = in.lh   -(-LEG_LIFT_MIN)
@@ -1032,7 +1029,8 @@ Sub COM.sendMsg _cmd
   Memory Copy pv, pbuf+1, COM_N_BYTEVAL
 
   ' Send message
-  Print #2, Hex$(Timer, 8) +buf$
+  Local string s$ = Hex$(Timer, 8) +buf$
+  I2C Write COM_I2C_ADDR, 1, COM_MSG_LEN, s$
 End Sub
 
 ' - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -1041,7 +1039,7 @@ Sub COM.handleStateMsg
   ' handle it
   Static integer first = 1, pbuf, pv, v(COM_MSG_LEN/8 -1)
   Static String buf$
-  Local integer n
+  Local integer n, j
   If first Then
     pbuf = Peek(VarAddr buf$)
     pv = Peek(VarAddr v())
@@ -1049,128 +1047,61 @@ Sub COM.handleStateMsg
   EndIf
   com.in_res = 0
 
-  ' Check if COM is ready and if there is data waiting
+  ' Check if communication link is ready and if there is data waiting
   If Not(com.isReady) Then Exit Sub
-  If Loc(#2) > 0 Then
-    ' Read the waiting data
-    If DEBUG And DEB_COM Then Print "Receiving ..."
-    com.in_res = RES_NEW_MSG
-    Line Input #2, buf$
-    n = Peek(Byte pbuf)
-    If n <> COM_MSG_LEN Then
-      ' Error: Length invalid, clear input buffer
-      Print "|<Error: Invalid message length (";n;")"
-      com.in_res = com.in_res Or RES_ERROR
-      Exit Sub
-    EndIf
+  COM.sendMsg CMD_STATE
+  I2C Read COM_I2C_ADDR, 0, COM_MSG_LEN, buf$
+  n = Choice(MM.I2C = 0, PEEK(BYTE pbuf), 0)
 
-    ' Parse the message, starting with the time of message
-    ' (as hexlified uint32)
-    com.in_t_ms = Val("&H"+Mid$(buf$,1,8))
+  ' Check data
+  If DEBUG And DEB_COM Then Print "Receiving ..."
+  com.in_res = RES_NEW_MSG
+  If n <> COM_MSG_LEN Then
+    ' Error: Length invalid, clear input buffer
+    Print "|<Error: Invalid message length (";n;")"
+    com.in_res = com.in_res Or RES_ERROR
+    Exit Sub
+  EndIf
 
-    ' Unpack single-byte values into an array
-    Memory Copy pbuf+9, pv, COM_N_BYTEVAL
-    Memory Unpack v(), com.in(), COM_N_BYTEVAL, 8
-    Math Add com.in(), -COM_DATA_OFFS, com.in()
+  ' Parse the message, starting with the time of message
+  ' (as hexlified uint32)
+  com.in_t_ms = Val("&H"+Mid$(buf$,1,8))
+
+  ' Unpack single-byte values into an array
+  Memory Copy pbuf+9, pv, COM_N_BYTEVAL
+  Memory Unpack v(), com.in(), COM_N_BYTEVAL, 8
+  Math Add com.in(), -COM_DATA_OFFS, com.in()
+  If DEBUG And DEB_COM Then
+    Print "|<Parameters"
+    Math V_print com.in()
+  EndIf
+  If Not(com.in(0) = CMD_STATE) Then
     If DEBUG And DEB_COM Then
-      Print "|<Parameters"
-      Math V_print com.in()
+      Print "|<Error: CMD_STATE expected"
+      com.in_res = com.in_res Or RES_ERROR
     EndIf
-    If Not(com.in(0) = CMD_STATE) Then
-      If DEBUG And DEB_COM Then
-        Print "|<Error: CMD_STATE expected"
-        com.in_res = com.in_res Or RES_ERROR
-      EndIf
-      Exit Sub
-    EndIf
-
-    ' Extract data array
-    '      0 : command code
-    '      1 : n data bytes (following), currenly 17
-    '      2 : servo battery voltage [V*10]
-    '      3 : logic battery voltage [V*10]
-    '    4,5 : compass heading [degree]
-    '    6,7 : compass pitch and roll [-90..90, degree]
-    '      8 : GGN state
-    '  9..16 : servo load for servos #0..7, 0..240 [a.u.]
-    R.servoBattery_V = com.in(2) /10
-    R.logicBattery_V = com.in(3) /10
-    R.IMU(0) = com.in(4) *10 +com.in(5)
-    R.IMU(1) = com.in(6) -90
-    R.IMU(2) = com.in(7) -90
-    R.ggn_state = com.in(8)
-    'Math V_Print com.in()
-
-    ' TODO: servo load'
-    com.in_res = com.in_res Or RES_HANDLED
+    Exit Sub
   EndIf
-End Sub
 
-' ===========================================================================
-' TOF sensor subroutines
-' ---------------------------------------------------------------------------
-Sub TOF.Open
-  ' Open serial connection to TOF unit (a Tiny2040 w/ a VL53L5CX)
-  If Not(USE_TOFF) Then Exit Sub
-  Print "| Opening COM2 to TOF unit ..."
-  SetPin PIN_TOF_RX, PIN_TOF_TX, COM2
-  Open "COM2:"+Str$(TOF_BAUD)+",,TOF._read,"+Str$(TOF_N_DATA) As #1
-  tof.isReady = 1
-End Sub
-
-
-Sub TOF.start
-  ' Start ranging ...
-  If Not(USE_TOFF) Then Exit Sub
-  Print #1, "A"+Str$(TOF_TILT_DEG,3) : Pause 500
-  Print #1, "R000" : Pause 500
-End Sub
-
-
-Sub TOF.stop
-  ' Stop ranging
-  If Not(USE_TOFF) Then Exit Sub
-  Print #1, "S000" : Pause 500
-End Sub
-
-
-Sub TOF.Close
-  ' Stops ranging and closes serial port to TOF unit
-  If Not(USE_TOFF) Then Exit Sub
-  TOF.stop
-  Close #1
-End Sub
-
-
-Sub TOF._read
-  ' Check TOF if new data is available, if so, sets `tof.newData` = 1
-  ' and fills `tof.fr()` with pixel data (distance in cm; 255=invalid)
-  Static integer first = 1, pbuf, v(TOF_N_FR/8 -1), pv, w(TOF_N_FR-1)
-  Static String buf$ length TOF_N_DATA+2
-  If first Then
-    pbuf = Peek(VarAddr buf$)
-    pv = Peek(VarAddr v())
-    first = 0
-  EndIf
-  tof.newData = 0
-  If Not(tof.isReady) Then Exit Sub
-  If Loc(#1) >= TOF_N_DATA Then
-    Line Input #1, buf$
-    tof.len = Peek(Byte pbuf)
-    If tof.len = TOF_N_DATA Then
-      ' Complete tof distance data frame received
-      tof.iFr = Val("&H"+Mid$(buf$,1,8))
-      tof.dx  = Peek(Byte pbuf +9) -TOF_DATA_OFFS
-      tof.dy  = Peek(Byte pbuf +10) -TOF_DATA_OFFS
-      Memory Copy pbuf+11, pv, TOF_N_FR
-      Memory Unpack v(), w(), TOF_N_FR, 8
-      Math Scale w(), 1, tof.fr()
-      'Print "iFr=";tof.iFr;
-      'Print " Data len=";tof.len;" (";tof.dx;"x";tof.dy;")"
-      'Math M_print tof.fr()
-      tof.newData = 1
-    EndIf
-  EndIf
+  ' Extract data array
+  '      0 : command code
+  '      1 : n data bytes (following), currenly 17
+  '      2 : servo battery voltage [V*10]
+  '      3 : logic battery voltage [V*10]
+  '    4,5 : compass heading [degree]
+  '    6,7 : compass pitch and roll [-90..90, degree]
+  '      8 : GGN state
+  '  9..16 : servo load for servos #0..7, 0..240 [a.u.]
+  R.servoBattery_V = com.in(2) /10
+  R.logicBattery_V = com.in(3) /10
+  R.IMU(0) = com.in(4) *10 +com.in(5)
+  R.IMU(1) = com.in(6) -90
+  R.IMU(2) = com.in(7) -90
+  R.ggn_state = com.in(8)
+  For j=0 To SRV_N_LOAD_CH -1
+    R.load(j) = com.in(9 +j)
+  Next
+  com.in_res = com.in_res Or RES_HANDLED
 End Sub
 
 ' ============================================================================
@@ -1210,7 +1141,7 @@ Sub initGamepad _type
       Print "| Gamepad of type";j;" found on channel";i
       gpad.ch = i
       gpad.type = _type
-      Device gamepad interrupt enable i, _cb_gamepad
+      Gamepad interrupt enable i, _cb_gamepad
       Exit Sub
     EndIf
   Next
@@ -1290,4 +1221,5 @@ Function isWiFiOk(reboot)
   Print "RESTART"
 End Function
 
-' ---------------------------------------------------------------------------                              
+' ---------------------------------------------------------------------------
+                                                        
