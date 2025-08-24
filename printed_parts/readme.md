@@ -11,6 +11,12 @@ This folder contains the `.STL` files for the 3D printed parts. Most of the part
 * `tibea_v1.stl`, `tibea_v1_alternative.stl` - Leg (tibea)
 * `foot.stl` - Foot
 
+### Sensor head
+* `camera_holder_v2-lid.stl` - holds ESP32-cam board in place and fixes camera (lens)
+* `camera_holder_v2-mount.stl` - mounts sensor head to front of robot
+* `camera_holder_v2-tof_holder.stl` - holds ToF sensor board
+* `camera_holder_v2-base.stl` - base of head, holds ESP32-cam board
+
 ### Other parts
 * `switch_adapter.stl` - Adapter for power switch (original)
 * `LED_holder.stl` - Fits a 3-mm LED into one of the holes of the base
