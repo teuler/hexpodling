@@ -1,0 +1,7 @@
+### Footprint positions - created on 2025-04-18T18:59:06+0200 ###
+### Printed by KiCad version 9.0.1
+## Unit = mm, Angle = deg.
+## Side : bottom
+# Ref     Val                  Package                                 PosX       PosY       Rot  Side
+J3        Conn_02x10_Odd_Even  PinHeader_2x10_P2.54mm_Horizontal    98.2980   -87.1220  180.0000  bottom
+## End
