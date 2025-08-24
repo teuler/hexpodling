@@ -12,7 +12,7 @@ This folder contains the current MMBasic code:
 
 ## Server
 To upload the software to the server Pico:
-1. Install the [PicoMite firmware](https://geoffg.net/Downloads/picomite/PicoMite_Firmware.zip) (V6.00.01, `PicoMiteRP2040V6.00.01.uf2` or the RP2350 variant)
+1. Install the [PicoMite firmware](https://geoffg.net/Downloads/picomite/PicoMite_Firmware.zip) (V6.0x, `PicoMiteRP2350V6.0xxx.uf2`)
 2. Load programs onto the internal drive:
    ```
    xmodem r "hps_srv.bas"
