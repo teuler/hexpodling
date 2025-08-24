@@ -44,7 +44,7 @@ To upload the software to the server Pico:
      
 ## Client
 To upload the software to the client Pico:
-1. Install the [PicoMite firmware](https://geoffg.net/Downloads/picomite/PicoMite_Firmware.zip) (V6.00.01, `PicoMiteRP2040USBV6.00.01.uf2` or the RP2350 variant). The USB variant is needed to allow the robot to be controlled by a USB-gamepad.
+1. Install the [PicoMite firmware](https://geoffg.net/Downloads/picomite/PicoMite_Firmware.zip) (V6.0x, `PicoMiteRP2350USBV6.0xxx.uf2t). The USB variant is needed to allow the robot to be controlled by a USB-gamepad.
 
 > Note: _After installing the USB firmware, the Pico console cannot be longer connected via the USB port, because it enters host-mode. For connecting the serial console, use pins GP8 and GP9 (COM2, 115200). For details, see MMBasic manual._
 
