@@ -1,0 +1,45 @@
+### Footprint positions - created on 2025-04-18T18:59:06+0200 ###
+### Printed by KiCad version 9.0.1
+## Unit = mm, Angle = deg.
+## Side : top
+# Ref     Val                          Package                                                       PosX       PosY       Rot  Side
+C1        10uF                         C_1206_3216Metric_Pad1.33x1.80mm_HandSolder               117.9445   -70.4850  180.0000  top
+C2        10uF                         C_1206_3216Metric_Pad1.33x1.80mm_HandSolder               158.1150   -86.9950    0.0000  top
+C3        10uF                         C_1206_3216Metric_Pad1.33x1.80mm_HandSolder               164.4650   -93.4720    0.0000  top
+D1        SK6805                       LED_SK6805_PLCC4_2.4x2.7mm_P1.3mm                         111.5220   -70.5970    0.0000  top
+D2        SK6805                       LED_SK6805_PLCC4_2.4x2.7mm_P1.3mm                         111.5220   -67.4220    0.0000  top
+D3        LED                          LED_0805_2012Metric_Pad1.15x1.40mm_HandSolder             111.3700   -74.9300    0.0000  top
+D4        LED                          LED_0805_2012Metric_Pad1.15x1.40mm_HandSolder             111.3700   -77.0890    0.0000  top
+D5        LED                          LED_0805_2012Metric_Pad1.15x1.40mm_HandSolder             157.3530   -94.3610  180.0000  top
+D6        LED                          LED_0805_2012Metric_Pad1.15x1.40mm_HandSolder             157.3530   -90.5510    0.0000  top
+J1        Conn_01x10_Pin               PinHeader_1x10_P2.54mm_Vertical                           131.7640  -124.3534   90.0000  top
+J2        Conn_01x10_Pin               PinHeader_1x10_P2.54mm_Vertical                           131.7640  -109.1134   90.0000  top
+J4        Conn_01x04_Pin               PinHeader_1x04_P2.54mm_Vertical                           103.2002  -107.8484   90.0000  top
+J5        Conn_01x07                   PinHeader_1x07_P2.54mm_Vertical                           121.6660   -90.9320    0.0000  top
+J6        USB_C_Receptacle_USB2.0_16P  USB_C_Receptacle_GCT_USB4105-xx-A_16P_TopMnt_Horizontal   172.8470   -90.2970   90.0000  top
+J7        Conn_02x04_Top_Bottom        PinHeader_2x04_P2.54mm_Vertical                           105.2830  -119.2530   90.0000  top
+J8        Conn_01x02                   PinHeader_1x02_P2.54mm_Vertical                           163.3220  -124.5870   90.0000  top
+Q1        IRFTS2242PBF                 TSOP-6_1.65x3.05mm_P0.95mm                                170.6710  -111.6990    0.0000  top
+R1        10k                          R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               158.4725  -125.4760    0.0000  top
+R2        20k                          R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               158.5195  -123.8250    0.0000  top
+R3        1k                           R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               145.6455  -113.2840    0.0000  top
+R4        1k                           R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               139.9305  -113.2840    0.0000  top
+R5        1.5k                         R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               151.1065  -113.2840  180.0000  top
+R6        1.5k                         R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               134.3660  -113.2840  180.0000  top
+R7        1k                           R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               117.0470   -73.7870    0.0000  top
+R8        1k                           R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               120.6500   -75.9460    0.0000  top
+R9        1k                           R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               120.6735   -73.7870    0.0000  top
+R10       1k                           R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               117.0470   -75.9460    0.0000  top
+R11       4k7                          R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               106.2990  -122.1740    0.0000  top
+R12       4k7                          R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               112.9030  -122.1740    0.0000  top
+R14       470                          R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               153.5430   -91.8210    0.0000  top
+R15       5K1                          R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               165.6315   -85.3440  180.0000  top
+R16       5K1                          R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               165.5845   -87.1220  180.0000  top
+R17       470                          R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               153.5430   -93.7260  180.0000  top
+R18       2K                           R_0603_1608Metric_Pad0.98x0.95mm_HandSolder               165.5845   -95.5040    0.0000  top
+SW1       BootSel                      SW_Push_1P1T_XKB_TS-1187A                                 118.9200   -63.7540    0.0000  top
+SW2       Reset                        SW_Push_1P1T_XKB_TS-1187A                                 108.5850   -86.2330    0.0000  top
+U1        Pico                         RPi_Pico_SMD_TH                                           150.7500  -109.2200  -90.0000  top
+U2        MCP73831-2-OT                SOT-23-5                                                  165.2270   -90.2970    0.0000  top
+U3        Pico_PGA2350B                pga2350__pimoroni                                         138.6840   -75.9460    0.0000  top
+## End
