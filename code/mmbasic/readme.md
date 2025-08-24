@@ -62,13 +62,15 @@ To upload the software to the client Pico:
    ```
 4. Set the following options (note that the SPI and LCDPANEL options are only needed if connecting a TFT display):
    ```
-   OPTION SYSTEM SPI GP18,GP19,GP16
-   OPTION AUTORUN ON
+   OPTION SERIAL CONSOLE COM2,GP8,GP9
+   OPTION LCD SPI GP18,GP19,GP16
    OPTION COLOURCODE ON
-   OPTION DISPLAY 64, 80
    OPTION HEARTBEAT OFF
+   OPTION CPUSPEED 252000
+   OPTION DISPLAY 64, 80
+   OPTION LCDPANEL ST7789_320BUFF, PORTRAIT,GP22,GP15,GP17,GP14
+   OPTION AUTORUN ON
    OPTION PICO OFF
-   OPTION LCDPANEL ST7789_320, PORTRAIT,GP22,GP15,GP17,GP14
    ```
    Calling `option list` should also give the follwing options automatically:
    ```
